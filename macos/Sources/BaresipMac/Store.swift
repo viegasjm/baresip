@@ -7,7 +7,7 @@ import AVFoundation
     @Published var monoDeviceAudio = UserDefaults.standard.object(forKey: "monoDeviceAudio") as? Bool ?? true {
         didSet { UserDefaults.standard.set(monoDeviceAudio, forKey: "monoDeviceAudio") }
     }
-    @Published var audioDevices = AudioDiagnostics.catalog()
+    @Published var audioDevices = AudioDeviceCatalog()
     @Published var inputDeviceUID = UserDefaults.standard.string(forKey: "inputDeviceUID") ?? "default"
     @Published var outputDeviceUID = UserDefaults.standard.string(forKey: "outputDeviceUID") ?? "default"
     var audioRouting: AudioRouting { AudioRouting(inputUID: inputDeviceUID, outputUID: outputDeviceUID) }
@@ -32,8 +32,11 @@ import AVFoundation
     private var transferConsult: String?
     private var transferExisting: Set<String> = []
     private var registrationTask: Task<Void, Never>?
+    private let storageOverride: URL?
+    private let audioCatalog: () -> AudioDeviceCatalog
     private var storage: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("BaresipMac/accounts.json")
+        if let storageOverride { return storageOverride }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("BaresipMac/accounts.json")
     }
     var account: SIPAccount? { accounts.first { $0.id == selectedAccount } }
     func connection(for account: SIPAccount?) -> AccountConnection {
@@ -41,7 +44,10 @@ import AVFoundation
     }
     var accountConnection: AccountConnection { connection(for: account) }
     var call: SIPCall? { calls.first { $0.id == selectedCall } }
-    init() {
+    init(storageURL: URL? = nil, audioCatalog: @escaping () -> AudioDeviceCatalog = AudioDiagnostics.catalog) {
+        self.storageOverride = storageURL
+        self.audioCatalog = audioCatalog
+        audioDevices = audioCatalog()
         do {
             if FileManager.default.fileExists(atPath: storage.path) { accounts = try JSONDecoder().decode([SIPAccount].self, from: Data(contentsOf: storage)) }
         } catch { self.error = "Could not load saved accounts: \(error.localizedDescription)" }
@@ -125,7 +131,7 @@ import AVFoundation
         try JSONEncoder().encode(accounts).write(to: storage, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storage.path)
     }
-    func refreshAudioDevices() { audioDevices = AudioDiagnostics.catalog() }
+    func refreshAudioDevices() { audioDevices = audioCatalog() }
     func audioDeviceChanged() {
         guard calls.isEmpty, !busy else { return }
         UserDefaults.standard.set(inputDeviceUID, forKey: "inputDeviceUID")
@@ -271,7 +277,11 @@ import AVFoundation
             }
             let reason = object["param"] as? String ?? ""
             note("Call ended: \(reason) · Call-ID: \(id)")
-            if DebugJournal.deviceExplanation(reason) != nil { note("Local audio device error. Open the Debug tab for microphone/speaker details.") }
+            if DebugJournal.deviceExplanation(reason) != nil {
+                refreshAudioDevices()
+                error = "Call audio could not start. Check your microphone and speaker in the Audio tab, then try again. Your SIP accounts remain connected. Details are available in Debug."
+                note("Local audio device error. Open the Debug tab for microphone/speaker details.")
+            }
             return
         }
         let states = ["CALL_INCOMING": "Incoming", "CALL_OUTGOING": "Calling", "CALL_RINGING": "Ringing", "CALL_PROGRESS": "Connecting", "CALL_ANSWERED": "Connected", "CALL_ESTABLISHED": "Connected"]

@@ -9,6 +9,17 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Password storage in macOS Keychain; account preferences stored separately.
 
+## Version 0.1.4 missing microphone recovery
+
+A missing microphone is a recoverable call error: accounts stay connected,
+call controls become available again, and diagnostics and reconnect still work.
+If an audio device fails after call setup starts, the app displays a clear
+message pointing to Audio and Debug while preserving the account connection.
+The app-state regression repeats the missing-microphone call attempt three times
+and verifies diagnostics and reconnect. The test launcher also reports startup
+errors normally instead of turning an unhandled error into a crash report, and
+verifies the bundled signature before starting the engine.
+
 ## Version 0.1.3 audio device selection
 
 The Audio tab provides independent microphone and speaker menus, system-default

@@ -1,4 +1,4 @@
-# Validation — 2026-10-27, version 0.1.3
+# Validation — 2026-10-27, version 0.1.4
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
@@ -10,6 +10,7 @@
 | Real default microphone call | Reproduced failure | Input AudioQueueStart returns -66680 / InvalidDevice, mapped to error 19 |
 | Audio inventory on development host | 0 inputs, 1 output | No microphone is exposed by macOS; built-in speaker is present |
 | Real explicitly selected speaker, incoming/outgoing receive-only local calls | Pass | PCMA, PCMU, G722 and Opus decoders and CoreAudio player opened by stable UID; RTP reception and hold/resume worked; zero microphone packets |
+| App behavior without a microphone | Pass | Three call attempts through Store leave accounts connected, clear busy state, show a microphone error, preserve diagnostics and allow reconnect |
 | Missing/unplugged input preflight | Pass | Returns a microphone-specific error before requesting permission or starting a call |
 | Native visual control inspection | Blocked | Desktop automation returns “native pipe closed before response”; app main threads sampled in normal event waits |
 | Real microphone send/receive audio | Not verified | Requires an available input device and OS permission |

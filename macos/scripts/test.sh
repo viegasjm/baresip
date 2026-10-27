@@ -6,6 +6,7 @@ export CLANG_MODULE_CACHE_PATH="$ROOT/build/clang-cache"
 mkdir -p build
 swiftc -parse-as-library macos/Sources/BaresipMac/Models.swift macos/Sources/BaresipMac/Diagnostics.swift macos/Sources/BaresipMac/AudioDiagnostics.swift macos/Tests/BaresipMacTests/ProtocolTests.swift -o build/protocol-tests
 build/protocol-tests
+codesign --verify --deep --strict 'macos/dist/Baresip Mac.app'
 TEST_APP="$ROOT/build/EngineTests.app"
 mkdir -p "$TEST_APP/Contents/MacOS"
 # Use a fresh copy of the same resources shipped in the client.
@@ -19,7 +20,7 @@ info['CFBundleIdentifier'] = 'com.viegasjm.baresip-mac.tests'
 info['CFBundleName'] = 'Baresip Engine Tests'
 (dest / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 PY
-swiftc -parse-as-library macos/Sources/BaresipMac/Models.swift macos/Sources/BaresipMac/Diagnostics.swift macos/Sources/BaresipMac/AudioDiagnostics.swift macos/Sources/BaresipMac/Engine.swift macos/Tests/EngineIntegration.swift -o "$TEST_APP/Contents/MacOS/BaresipMac"
+swiftc -parse-as-library macos/Sources/BaresipMac/Models.swift macos/Sources/BaresipMac/Diagnostics.swift macos/Sources/BaresipMac/AudioDiagnostics.swift macos/Sources/BaresipMac/Engine.swift macos/Sources/BaresipMac/Store.swift macos/Tests/EngineIntegration.swift -o "$TEST_APP/Contents/MacOS/BaresipMac"
 "$TEST_APP/Contents/MacOS/BaresipMac"
 python3 macos/Tests/sip_integration.py
 codesign --verify --deep --strict 'macos/dist/Baresip Mac.app'
