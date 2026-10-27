@@ -263,6 +263,7 @@ static int attended_xfer(struct re_printf *pf, void *arg)
 
 	if (!str_len(carg->prm)) {
 		info ("menu: no transfer target specified\n");
+		err = EINVAL;
 		goto out;
 	}
 
@@ -270,6 +271,8 @@ static int attended_xfer(struct re_printf *pf, void *arg)
 
 	if (!call_supported(menu->xfer_call, REPLACES)) {
 		info ("menu: peer does not support Replaces header\n");
+		menu->xfer_call = NULL;
+		err = ENOTSUP;
 		goto out;
 	}
 
