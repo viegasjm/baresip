@@ -87,7 +87,7 @@ class Peer:
         while self.running:
             try:
                 data, address = self.rtp.recvfrom(65535)
-                if len(data) >= 12 and data[0] >> 6 == 2:
+                if len(data) > 12 and data[0] >> 6 == 2:
                     self.rtp_received += 1
                     self.rtp_by_port[address[1]] = self.rtp_by_port.get(address[1], 0) + 1
                     if self.codec.name == "PCMA" and any(value not in [0xD5, 0x55] for value in data[12:]): self.rtp_non_silent += 1

@@ -30,12 +30,14 @@ struct SIPAccount: Codable, Identifiable, Equatable {
     var domain = ""
     var authUser = ""
     var proxy = ""
+    var phoneNumbers: String?
     var transport = "TLS"
     var register = true
     var codecs = Codec.defaults
     var headers: [SIPHeader] = []
     var aor: String { "sip:\(username)@\(domain)" }
     var displayName: String { label.isEmpty ? username : label }
+    var assignedNumbers: [String] { phoneNumbers?.split { $0 == "," || $0.isWhitespace }.map(String.init) ?? [] }
     func validate() throws {
         let forbidden = CharacterSet(charactersIn: "\"<>;\r\n\t \\")
         for value in [username, domain, authUser, proxy] {
@@ -44,13 +46,17 @@ struct SIPAccount: Codable, Identifiable, Equatable {
         guard !username.isEmpty, !domain.isEmpty, !domain.contains("@"), !username.contains("@") else { throw AppError.message("Enter a username and SIP domain separately.") }
         guard ["UDP", "TCP", "TLS"].contains(transport) else { throw AppError.message("Choose a supported SIP transport.") }
         guard codecs.contains(where: \.enabled) else { throw AppError.message("Enable at least one audio codec.") }
+        for number in assignedNumbers {
+            guard number.range(of: "^\\+[1-9][0-9]{6,14}$", options: .regularExpression) != nil else { throw AppError.message("Enter assigned numbers in full international format, such as +12025550123.") }
+        }
         for header in headers { try header.validate() }
     }
     func configuration(startRegistration: Bool = true) throws -> String {
         try validate()
-        var line = "<\(aor);transport=\(transport.lowercased())>;regint=\(register && startRegistration ? 300 : 0);audio_codecs=\(codecs.filter(\.enabled).map(\.name).joined(separator: ","))"
+        var line = "<\(aor);transport=\(transport.lowercased())>;regint=\(register && startRegistration ? 300 : 0);natpinhole=yes;audio_codecs=\(codecs.filter(\.enabled).map(\.name).joined(separator: ","))"
         if !authUser.isEmpty { line += ";auth_user=\(authUser)" }
         if !proxy.isEmpty { line += ";outbound=\"sip:\(proxy);transport=\(transport.lowercased())\"" }
+        if !assignedNumbers.isEmpty { line += ";inbound_numbers=\(assignedNumbers.joined(separator: ","))" }
         return line
     }
 }
@@ -60,6 +66,28 @@ struct SIPCall: Identifiable, Equatable {
     var peer: String
     var state: String
     var incoming: Bool
+    var sipCallID = ""
+    var localPeerID: String?
+    var sipID: String { sipCallID.isEmpty ? id : sipCallID }
+    static func controlID(_ event: [String: Any]) -> String? { event["leg_id"] as? String ?? event["id"] as? String }
+    static func uriIdentity(_ value: String) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "sips:", with: "").replacingOccurrences(of: "sip:", with: "")
+        let address = clean.components(separatedBy: ";")[0].components(separatedBy: "?")[0]
+        guard let at = address.lastIndex(of: "@") else { return address }
+        return String(address[...at]) + address[address.index(after: at)...].lowercased()
+    }
+    func localPartner(in calls: [SIPCall], phoneNumbers: [String] = []) -> SIPCall? {
+        guard incoming else { return nil }
+        let candidates = calls.filter { !$0.incoming && $0.account != account && $0.localPeerID == nil }
+        let exact = candidates.filter { $0.sipID == sipID }
+        if exact.count == 1 { return exact[0] }
+        let targeted = candidates.filter {
+            let target = Self.uriIdentity($0.peer)
+            let number = target.components(separatedBy: "@")[0]
+            return (target == Self.uriIdentity(account) || phoneNumbers.contains(number)) && Date().timeIntervalSince($0.started) < 30
+        }
+        return targeted.count == 1 ? targeted[0] : nil
+    }
     var held = false
     var remoteHeld = false
     var audioInput = ""

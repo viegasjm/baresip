@@ -271,9 +271,14 @@ static void event_handler(enum bevent_ev ev, struct bevent *event, void *arg)
 
 	err = odict_entry_add(od, "event", ODICT_BOOL, true);
 	err |= bevent_odict_encode(od, event);
-	if (bevent_get_call(event))
+	if (bevent_get_call(event)) {
+		err |= odict_entry_add(od, "leg_id", ODICT_STRING,
+			call_leg_id(bevent_get_call(event)));
+		err |= odict_entry_add(od, "local_peer_leg", ODICT_STRING,
+			call_local_peer_id(bevent_get_call(event)));
 		err |= odict_entry_add(od, "local_hold", ODICT_BOOL,
 			call_is_onhold(bevent_get_call(event)));
+	}
 	if (err) {
 		warning("ctrl_tcp: failed to encode event (%m)\n", err);
 		goto out;

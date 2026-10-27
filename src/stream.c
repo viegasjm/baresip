@@ -29,6 +29,7 @@ struct sender {
 	struct sa raddr_rtp;   /**< Remote RTP address              */
 	struct sa raddr_rtcp;  /**< Remote RTCP address             */
 	int pt_enc;            /**< Payload type for encoding       */
+	int last_error;        /**< Last RTP send error              */
 	RE_ATOMIC bool enabled;/**< True if enabled                 */
 	mtx_t *lock;
 };
@@ -764,6 +765,8 @@ int stream_send(struct stream *s, bool ext, bool marker, int pt, uint32_t ts,
 		mtx_lock(s->tx.lock);
 		err = rtp_send(s->rtp, &s->tx.raddr_rtp, ext, marker, pt, ts,
 			       tmr_jiffies_rt_usec(), mb);
+		if (err)
+			s->tx.last_error = err;
 		mtx_unlock(s->tx.lock);
 		if (err)
 			metric_inc_err(s->tx.metric);
@@ -1342,6 +1345,17 @@ static void update_menc_muxed(struct list *streaml, bool secure)
 
 static uint32_t phwait(struct stream *strm)
 {
+	/* Audio gateways may require several packets before latching a NAT
+	 * address. A short empty-header burst avoids losing a file's opening. */
+	if (strm->type == MEDIA_AUDIO) {
+		if (strm->natphc < 20) {
+			++strm->natphc;
+			return 20;
+		}
+		if (strm->natphc < 26)
+			++strm->natphc;
+		return 10 * (1 << (strm->natphc - 20));
+	}
 	if (strm->natphc < 6)
 		++strm->natphc;
 
@@ -1489,8 +1503,10 @@ void stream_open_natpinhole(struct stream *strm)
 	if (!strm)
 		return;
 
-	if (strm->pinhole)
+	if (strm->pinhole) {
+		strm->natphc = 0;
 		tmr_start(&strm->tmr_natph, 10, natpinhole_handler, strm);
+	}
 }
 
 
@@ -1669,7 +1685,20 @@ int stream_debug(struct re_printf *pf, const struct stream *s)
 	pfmb.vph = mbuf_print_h;
 	pfmb.arg = mb;
 	err  = mbuf_printf(mb, "--- Stream debug ---\n");
+	err |= mbuf_printf(mb,
+		" RTP packets: tx_attempted=%u rx=%u; bytes: tx_attempted=%u rx=%u\n",
+		stream_metric_get_tx_n_packets(s),
+		stream_metric_get_rx_n_packets(s),
+		stream_metric_get_tx_n_bytes(s),
+		stream_metric_get_rx_n_bytes(s));
+	err |= mbuf_printf(mb, " RTP errors: tx=%u rx=%u\n",
+		stream_metric_get_tx_n_err(s), stream_metric_get_rx_n_err(s));
 	mtx_lock(s->tx.lock);
+	if (s->tx.last_error)
+		err |= mbuf_printf(mb, " Last RTP send error: %d (%m)\n",
+				   s->tx.last_error, s->tx.last_error);
+	else
+		err |= mbuf_printf(mb, " Last RTP send error: none\n");
 	err |= mbuf_printf(mb, " %s dir=%s pt_enc=%d\n",
 			   sdp_media_name(s->sdp),
 			   sdp_dir_name(sdp_media_dir(s->sdp)),

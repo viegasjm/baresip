@@ -238,6 +238,10 @@ void call_hangupf(struct call *call, uint16_t scode, const char *reason,
 int  call_set_close_headers(struct call *call, const char *fmt, ...);
 int  call_modify(struct call *call);
 int  call_hold(struct call *call, bool hold);
+const char *call_leg_id(const struct call *call);
+const char *call_local_peer_id(const struct call *call);
+bool call_is_local_peer(const struct call *a, const struct call *b);
+int call_pair_local(struct call *a, struct call *b);
 void call_set_audio_ldir(struct call *call, enum sdp_dir dir);
 void call_set_video_ldir(struct call *call, enum sdp_dir dir);
 int  call_set_video_dir(struct call *call, enum sdp_dir dir);

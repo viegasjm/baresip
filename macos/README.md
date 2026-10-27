@@ -9,6 +9,53 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Password storage in macOS Keychain; account preferences stored separately.
 
+## Version 0.1.7 calls between accounts in one app
+
+Call legs now have separate local control identities, so two accounts can keep
+both ends of a call even when a proxy preserves the same SIP Call-ID. The real
+SIP Call-ID remains available in Debug and traces. Hold, resume, answer, file
+input and hangup target the selected local leg.
+
+When an outgoing call targets another registered account in this app, its
+incoming leg is paired before answering. Paired legs are exempt from each
+other's automatic hold policy, including when a provider rewrites Call-ID.
+Ordinary unrelated calls retain automatic hold behavior. The local receiving
+leg defaults to listen-only to avoid shared microphone feedback or sending a
+preselected audio file back to its own caller.
+
+To test, select A and call B's full SIP address, then select B's incoming call
+and Answer. Select A's call and Play audio file; B receives it through the
+selected speaker. A file chosen before dialing also plays from A to B only.
+The Calls sidebar shows the account for each leg. Both legs remain available
+until hangup.
+
+For number-based calls, add the full destination number (for example,
+`+12025550123`) to B's **Assigned numbers** field in Edit account. This lets
+the app recognize the two local legs when a provider changes SIP Call-ID,
+and route incoming INVITEs addressed to that number to B. Numbers delivered
+with or without the leading `+` match; duplicate account mappings are rejected.
+This field describes numbers already routed by your provider; it does not
+change provider routing. Existing saved accounts continue to work.
+
+For Telnyx account-only SIP URI calling, an account header named
+`X-Telnyx-Username` with the SIP username can identify the calling connection
+before the digest challenge. Configure this in the account's Headers tab.
+The provider's SIP password is still required for authentication.
+
+This also fixes conversion filters for transmit-only and receive-only streams,
+which is necessary when two listen-only accounts connect before file input is
+started. A transmitter can now resample file audio without requiring a decoder
+on the same leg.
+
+Receive-only audio opens the engine's NAT pinhole with empty RTP keepalive
+packets, as its video receiver already does. These contain no audio and do
+not open the microphone. A short startup burst helps gateways learn the
+receiver's address before file playback. Tests exclude empty keepalives from
+audio counts.
+
+Debug snapshots also show RTP transmit attempts, receive counts, send/receive
+errors and the last send error.
+
 ## Version 0.1.6 hold/resume state
 
 The Hold button now changes to Resume after a local hold, and back to Hold

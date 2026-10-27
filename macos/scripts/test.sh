@@ -24,5 +24,6 @@ info['CFBundleName'] = 'Baresip Engine Tests'
 PY
 swiftc -parse-as-library macos/Sources/BaresipMac/Models.swift macos/Sources/BaresipMac/Diagnostics.swift macos/Sources/BaresipMac/AudioDiagnostics.swift macos/Sources/BaresipMac/AudioFileInput.swift macos/Sources/BaresipMac/Engine.swift macos/Sources/BaresipMac/Store.swift macos/Tests/EngineIntegration.swift -o "$TEST_APP/Contents/MacOS/BaresipMac"
 python3 macos/Tests/store_integration.py "$TEST_APP/Contents/MacOS/BaresipMac"
+python3 macos/Tests/self_call_integration.py "$TEST_APP/Contents/MacOS/BaresipMac"
 python3 macos/Tests/sip_integration.py
 codesign --verify --deep --strict 'macos/dist/Baresip Mac.app'

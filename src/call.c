@@ -24,6 +24,8 @@
 
 /** SIP Call Control object */
 struct call {
+	char leg_id[32];          /**< Process-unique local control identity */
+	char local_peer_id[32];   /**< Paired local call leg, if any */
 	MAGIC_DECL                /**< Magic number for debugging           */
 	struct le le;             /**< Linked list element                  */
 	const struct config *cfg; /**< Global configuration                 */
@@ -831,6 +833,8 @@ int call_streams_alloc(struct call *call)
  *
  * @return 0 if success, otherwise errorcode
  */
+static uint64_t next_leg_id;
+
 int call_alloc(struct call **callp, const struct config *cfg, struct list *lst,
 	       const char *local_name, const char *local_uri,
 	       struct account *acc, struct ua *ua, const struct call_prm *prm,
@@ -854,6 +858,8 @@ int call_alloc(struct call **callp, const struct config *cfg, struct list *lst,
 
 	MAGIC_INIT(call);
 
+	re_snprintf(call->leg_id, sizeof(call->leg_id), "leg:%llu",
+		    (unsigned long long)++next_leg_id);
 	call->config_avt = cfg->avt;
 	call->config_call = cfg->call;
 
@@ -1577,6 +1583,42 @@ bool call_ack_pending(const struct call *call)
 const char *call_id(const struct call *call)
 {
 	return call ? call->id : NULL;
+}
+
+
+const char *call_leg_id(const struct call *call)
+{
+	return call ? call->leg_id : NULL;
+}
+
+const char *call_local_peer_id(const struct call *call)
+{
+	return call ? call->local_peer_id : NULL;
+}
+
+bool call_is_local_peer(const struct call *a, const struct call *b)
+{
+	if (!a || !b || a == b || a->ua == b->ua ||
+	    a->outgoing == b->outgoing)
+		return false;
+	return (str_isset(a->local_peer_id) &&
+		0 == str_cmp(a->local_peer_id, b->leg_id)) ||
+	       (str_isset(a->id) && 0 == str_cmp(a->id, b->id));
+}
+
+int call_pair_local(struct call *a, struct call *b)
+{
+	if (!a || !b || a == b || a->ua == b->ua ||
+	    a->outgoing == b->outgoing)
+		return EINVAL;
+	if ((str_isset(a->local_peer_id) &&
+	     str_cmp(a->local_peer_id, b->leg_id)) ||
+	    (str_isset(b->local_peer_id) &&
+	     str_cmp(b->local_peer_id, a->leg_id)))
+		return EBUSY;
+	str_ncpy(a->local_peer_id, b->leg_id, sizeof(a->local_peer_id));
+	str_ncpy(b->local_peer_id, a->leg_id, sizeof(b->local_peer_id));
+	return 0;
 }
 
 

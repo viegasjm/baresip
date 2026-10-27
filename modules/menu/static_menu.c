@@ -359,6 +359,22 @@ static int switch_audio_player(struct re_printf *pf, void *arg)
 }
 
 
+/* Pair two local legs before answering through a B2BUA that rewrites Call-ID. */
+static int pair_local_calls(struct re_printf *pf, void *arg)
+{
+	const struct cmd_arg *carg = arg;
+	struct pl first, second;
+	char a[32], b[32];
+	(void)pf;
+	if (re_regex(carg->prm, str_len(carg->prm), "[^ ]+ [^ ]+",
+		     &first, &second) || first.l >= sizeof(a) ||
+	    second.l >= sizeof(b))
+		return EINVAL;
+	pl_strcpy(&first, a, sizeof(a));
+	pl_strcpy(&second, b, sizeof(b));
+	return call_pair_local(uag_call_find(a), uag_call_find(b));
+}
+
 /* Change defaults for future calls without touching existing calls. */
 static int default_audio_source(struct re_printf *pf, void *arg)
 {
@@ -1516,6 +1532,7 @@ static const struct cmd cmdv[] = {
                              "direction.",              cmd_answerdir        },
 {"answermode",0,    CMD_PRM, "Set answer mode",         cmd_set_answermode   },
 {"auplay",    0,    CMD_PRM, "Switch audio player",     switch_audio_player  },
+{"callpair", 0, CMD_PRM, "Pair local call legs", pair_local_calls },
 {"ausrcdefault", 0, CMD_PRM, "Source for future calls", default_audio_source },
 {"ausrc",     0,    CMD_PRM, "Switch audio source",     switch_audio_source  },
 {"callstat",  'c',        0, "Call status",             ua_print_call_status },

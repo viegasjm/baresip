@@ -67,7 +67,7 @@ struct MainView: View {
                         ForEach(store.calls) { call in
                             VStack(alignment: .leading, spacing: 4) {
                                 Label(call.peer.replacingOccurrences(of: "sip:", with: ""), systemImage: call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right").lineLimit(1)
-                                Text(call.statusTitle).font(.caption).foregroundStyle(.secondary)
+                                Text("\(call.statusTitle) · \(store.accounts.first { $0.aor == call.account }?.displayName ?? call.account)").font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 5).tag(call.id)
                         }
                     }.listStyle(.sidebar).frame(maxHeight: 240)
@@ -283,6 +283,8 @@ struct AccountEditor: View {
                     SecureField("Password", text: $password).disabled(passwordLoading)
                     TextField("Authentication username (optional)", text: $account.authUser)
                     TextField("Outbound proxy host:port (optional)", text: $account.proxy)
+                    TextField("Assigned numbers (optional, separated by commas)", text: Binding(get: { account.phoneNumbers ?? "" }, set: { account.phoneNumbers = $0 }))
+                    Text("Enter full numbers such as +12025550123 to recognize calls between your accounts.").font(.caption).foregroundStyle(.secondary)
                     Picker("Transport", selection: $account.transport) { Text("TLS").tag("TLS"); Text("TCP").tag("TCP"); Text("UDP").tag("UDP") }
                     Toggle("Register with the SIP server", isOn: $account.register)
                     Text("Passwords are stored in macOS Keychain. Turn registration off for direct SIP calls.").font(.caption).foregroundStyle(.secondary)

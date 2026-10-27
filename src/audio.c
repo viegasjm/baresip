@@ -992,21 +992,24 @@ static int autx_print_pipeline(struct re_printf *pf, const struct autx *autx)
  */
 static int aufilt_setup(struct audio *a, struct list *aufiltl)
 {
-	struct aufilt_prm encprm, plprm;
+	struct aufilt_prm encprm = {0}, plprm = {0};
 	struct autx *tx = &a->tx;
 	struct le *le;
 	bool update_enc, update_dec;
 	int err = 0;
 
-	/* wait until we have both Encoder and Decoder */
-	if (!tx->ac || !aurecv_codec(a->aur))
+	/* Unidirectional calls need their conversion filters too. A receiver
+	 * is not required to send a file, nor an encoder to listen. */
+	if (!tx->ac && !aurecv_codec(a->aur))
 		return 0;
 
-	update_dec = aurecv_filt_empty(a->aur);
-	update_enc = list_isempty(&tx->filtl);
+	update_dec = aurecv_codec(a->aur) && aurecv_filt_empty(a->aur);
+	update_enc = tx->ac && list_isempty(&tx->filtl);
 
-	aufilt_param_set(&encprm, tx->ac, tx->enc_fmt);
-	aufilt_param_set(&plprm, aurecv_codec(a->aur), a->cfg.play_fmt);
+	if (tx->ac)
+		aufilt_param_set(&encprm, tx->ac, tx->enc_fmt);
+	if (aurecv_codec(a->aur))
+		aufilt_param_set(&plprm, aurecv_codec(a->aur), a->cfg.play_fmt);
 	if (a->cfg.srate_play && a->cfg.srate_play != plprm.srate) {
 		plprm.srate = a->cfg.srate_play;
 	}
@@ -1192,6 +1195,7 @@ int audio_update(struct audio *a)
 
 	if (!sc || !sc->data) {
 		info("audio: stream is disabled\n");
+		stream_stop_natpinhole(a->strm);
 		audio_stop(a);
 		return 0;
 	}
@@ -1229,6 +1233,13 @@ int audio_update(struct audio *a)
 	else {
 		stop_tx(&a->tx, a);
 	}
+
+	/* Receive-only audio still needs an outbound NAT mapping. This sends
+	 * empty RTP headers, never microphone or synthetic audio frames. */
+	if (dir == SDP_RECVONLY)
+		stream_open_natpinhole(a->strm);
+	else
+		stream_stop_natpinhole(a->strm);
 
 	if (a->tx.ac && aurecv_codec(a->aur)) {
 

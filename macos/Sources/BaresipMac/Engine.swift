@@ -4,7 +4,11 @@ import Darwin
 
 @MainActor final class Engine {
     private let loopbackOnly: Bool
-    init(loopbackOnly: Bool = false) { self.loopbackOnly = loopbackOnly }
+    private let passwordOverrides: [UUID: String]
+    init(loopbackOnly: Bool = false, passwordOverrides: [UUID: String] = [:]) {
+        self.loopbackOnly = loopbackOnly
+        self.passwordOverrides = passwordOverrides
+    }
     var onEvent: (([String: Any]) -> Void)?
     var onOutput: ((String) -> Void)?
     private var outputLines = EngineOutputLines()
@@ -114,7 +118,9 @@ import Darwin
         do {
             for account in accounts {
                 let id = account.id
-                let password = try await Task.detached { try Passwords.load(id) }.value
+                let password: String
+                if let supplied = passwordOverrides[id] { password = supplied }
+                else { password = try await Task.detached { try Passwords.load(id) }.value }
                 _ = try await command("uafind", account.aor)
                 _ = try await command("uapassword", "\(try Passwords.commandValue(password)) 0")
                 if account.register { _ = try await command("uareg", "300 0") }

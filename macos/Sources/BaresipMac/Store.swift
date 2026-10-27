@@ -143,15 +143,16 @@ import AVFoundation
         UserDefaults.standard.set(outputDeviceUID, forKey: "outputDeviceUID")
         if connected { connect() }
     }
-    private func prepareCallInput() async throws -> CallAudioInput {
+    private func prepareCallInput(mode override: CallInputMode? = nil) async throws -> CallAudioInput {
+        let requestedMode = override ?? inputMode
         refreshAudioDevices()
         let hasMicrophone = audioDevices.resolve(inputDeviceUID, input: true) != nil
         var allowed = false
-        if inputMode == .automatic && hasMicrophone {
+        if requestedMode == .automatic && hasMicrophone {
             allowed = await AVCaptureDevice.requestAccess(for: .audio)
         }
-        let input = try audioRouting.callInput(mode: inputMode, file: audioFile?.url, in: audioDevices, microphoneAllowed: allowed)
-        if input == .listen && inputMode == .automatic {
+        let input = try audioRouting.callInput(mode: requestedMode, file: audioFile?.url, in: audioDevices, microphoneAllowed: allowed)
+        if input == .listen && requestedMode == .automatic {
             note(hasMicrophone ? "Microphone access unavailable; continuing in listen-only mode" : "No microphone available; continuing in listen-only mode")
         }
         return input
@@ -170,7 +171,7 @@ import AVFoundation
                 _ = try await self.engine.command("callfind", call.id)
                 _ = try await self.engine.command("callsource", "aufile,\(prepared.url.path)")
                 if let index = self.calls.firstIndex(where: { $0.id == call.id }) { self.calls[index].audioInput = "Playing \(prepared.name)" }
-                self.note("Playing \(prepared.name) into call · Call-ID: \(call.id)")
+                self.note("Playing \(prepared.name) into call · Call-ID: \(call.sipID)")
             }
         }
     }
@@ -223,10 +224,11 @@ import AVFoundation
     func control(_ command: String, params: String = "", onSuccess: (() -> Void)? = nil) {
         guard let call, connected else { return }
         run {
-            let input = command == "accept" ? try await self.prepareCallInput() : nil
+            let input = command == "accept" ? try await self.prepareCallInput(mode: call.localPeerID == nil ? nil : .listen) : nil
             _ = try await self.engine.command("uafind", call.account)
             if call.state != "Incoming" { _ = try await self.engine.command("callfind", call.id) }
             if let input {
+                if let peer = call.localPeerID { _ = try await self.engine.command("callpair", "\(call.id) \(peer)") }
                 _ = try await self.engine.command("callfind", call.id)
                 if let source = input.source { _ = try await self.engine.command("callsource", source) }
                 _ = try await self.engine.command("acceptdir", "audio=\(input.direction) video=inactive callid=\(call.id)")
@@ -301,7 +303,7 @@ import AVFoundation
                 _ = try await self.engine.command("uafind", call.account)
                 _ = try await self.engine.command("callfind", call.id)
                 let audio = try await self.engine.command("audio_debug")
-                self.diagnostics.add(category: "Snapshot", summary: "Negotiated audio and RTP", detail: audio, callID: call.id)
+                self.diagnostics.add(category: "Snapshot", summary: "Negotiated audio and RTP", detail: audio, callID: call.sipID)
             }
         }
     }
@@ -321,10 +323,10 @@ import AVFoundation
             note("Registration failed: \(aor) — \(reason)")
             return
         }
-        guard let id = object["id"] as? String else { return }
+        guard let rawID = object["id"] as? String, let id = SIPCall.controlID(object) else { return }
         if type == "END_OF_FILE" {
             if let index = calls.firstIndex(where: { $0.id == id }) { calls[index].audioInput = "Audio file finished" }
-            note("Audio file finished; call remains connected · Call-ID: \(id)")
+            note("Audio file finished; call remains connected · Call-ID: \(rawID)")
             return
         }
         if type == "CALL_CLOSED" {
@@ -335,7 +337,7 @@ import AVFoundation
                 attendedTransfer = false; transferOriginal = nil; transferConsult = nil
             }
             let reason = object["param"] as? String ?? ""
-            note("Call ended: \(reason) · Call-ID: \(id)")
+            note("Call ended: \(reason) · Call-ID: \(rawID)")
             if DebugJournal.deviceExplanation(reason) != nil {
                 refreshAudioDevices()
                 error = "Call audio could not start. Check your microphone and speaker in the Audio tab, then try again. Your SIP accounts remain connected. Details are available in Debug."
@@ -352,14 +354,20 @@ import AVFoundation
                 calls[index].state = state
             }
             else {
-                calls.append(SIPCall(id: id, account: aor, peer: object["peeruri"] as? String ?? "Unknown caller", state: state, incoming: object["direction"] as? String == "incoming"))
+                calls.append(SIPCall(id: id, account: aor, peer: object["peeruri"] as? String ?? "Unknown caller", state: state, incoming: object["direction"] as? String == "incoming", sipCallID: rawID))
                 if type != "CALL_INCOMING", let index = calls.firstIndex(where: { $0.id == id }) { calls[index].audioInput = nextCallInput }
                 selectedCall = id
             }
-            if type == "CALL_INCOMING" { NSApp.requestUserAttention(.criticalRequest) }
+            let numbers = accounts.first { $0.aor == aor }?.assignedNumbers ?? []
+            if type == "CALL_INCOMING", let incoming = calls.first(where: { $0.id == id }), let partner = incoming.localPartner(in: calls, phoneNumbers: numbers) {
+                if let index = calls.firstIndex(where: { $0.id == id }) { calls[index].localPeerID = partner.id }
+                if let index = calls.firstIndex(where: { $0.id == partner.id }) { calls[index].localPeerID = id }
+            }
+            if type == "CALL_INCOMING" { NSApp?.requestUserAttention(.criticalRequest) }
         }
         if let index = calls.firstIndex(where: { $0.id == id }) {
             calls[index].updateHoldState(object)
+            if let peer = object["local_peer_leg"] as? String, !peer.isEmpty { calls[index].localPeerID = peer }
         }
         if type == "TRANSFER_FAILED" { error = "Call transfer failed: \(object["param"] as? String ?? "Unknown reason")"; attendedTransfer = false }
     }

@@ -19,9 +19,26 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         suite.testFirstInviteAndAuthenticationRedaction()
         suite.testDebugHistoryAndRetention()
         suite.testFragmentedEngineOutput()
+        suite.testDistinctLocalLegsAndPairing()
         suite.testLocalAndRemoteHoldState()
         try suite.testAudioDeviceRouting()
-        print("PASS: 11 protocol, credential, connection-state, debug and device-routing tests")
+        print("PASS: 12 protocol, credential, connection-state, debug and device-routing tests")
+    }
+    func testDistinctLocalLegsAndPairing() {
+        let a = SIPCall(id: "leg:1", account: "sip:alice@example.com", peer: "sip:bob@example.com;transport=tls", state: "Calling", incoming: false, sipCallID: "same-call")
+        let b = SIPCall(id: "leg:2", account: "sip:bob@example.com", peer: "sip:alice@example.com", state: "Incoming", incoming: true, sipCallID: "same-call")
+        XCTAssertFalse(a.id == b.id)
+        XCTAssertEqual(a.sipID, b.sipID)
+        XCTAssertEqual(b.localPartner(in: [a, b])?.id, a.id)
+        var rewritten = b; rewritten.sipCallID = "other-provider-id"
+        XCTAssertEqual(rewritten.localPartner(in: [a, rewritten])?.id, a.id)
+        var ambiguous = a; ambiguous.id = "leg:3"
+        XCTAssertTrue(rewritten.localPartner(in: [a, ambiguous, rewritten]) == nil)
+        var numbered = a; numbered.peer = "sip:+12025550123@example.com;transport=tls"
+        XCTAssertTrue(rewritten.localPartner(in: [numbered, rewritten]) == nil)
+        XCTAssertEqual(rewritten.localPartner(in: [numbered, rewritten], phoneNumbers: ["+12025550123"])?.id, a.id)
+        XCTAssertTrue(rewritten.localPartner(in: [numbered, rewritten], phoneNumbers: ["+12025550124"]) == nil)
+        XCTAssertEqual(SIPCall.controlID(["id": "same-call", "leg_id": "leg:2"]), "leg:2")
     }
     func testLocalAndRemoteHoldState() {
         var call = SIPCall(id: "a", account: "alice", peer: "bob", state: "Connected", incoming: false)
@@ -138,6 +155,11 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         XCTAssertEqual(try Passwords.commandValue(""), "value=")
         XCTAssertTrue(line.contains("audio_codecs=PCMA/8000/1,opus/48000/2"))
         XCTAssertFalse(line.contains("PCMU"))
+        account.phoneNumbers = "+12025550123, +12025550124"
+        XCTAssertTrue(try account.configuration().contains("inbound_numbers=+12025550123,+12025550124"))
+        account.phoneNumbers = "+12025550123;catchall=yes"
+        XCTAssertThrowsError(try account.configuration())
+        account.phoneNumbers = nil
         account.codecs = account.codecs.map { Codec(name: $0.name, enabled: false) }
         XCTAssertThrowsError(try account.configuration())
     }
