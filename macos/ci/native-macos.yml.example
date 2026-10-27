@@ -1,10 +1,10 @@
 name: Native macOS client
 on:
   pull_request:
-    paths: ['macos/**', 'modules/menu/*.c', '.github/workflows/macos-client.yml']
+    paths: ['macos/**', 'modules/menu/*.c', 'modules/coreaudio/*.c', 'modules/ctrl_tcp/*.c', '.github/workflows/macos-client.yml']
   push:
     branches: ['codex/macos-native-client']
-    paths: ['macos/**', 'modules/menu/*.c', '.github/workflows/macos-client.yml']
+    paths: ['macos/**', 'modules/menu/*.c', 'modules/coreaudio/*.c', 'modules/ctrl_tcp/*.c', '.github/workflows/macos-client.yml']
   workflow_dispatch:
 permissions:
   contents: read

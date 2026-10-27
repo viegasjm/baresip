@@ -4,6 +4,8 @@ import Darwin
 
 @MainActor final class Engine {
     var onEvent: (([String: Any]) -> Void)?
+    var onOutput: ((String) -> Void)?
+    private var outputLines = EngineOutputLines()
     var onExit: ((String) -> Void)?
     private var process: Process?
     private var connection: NWConnection?
@@ -16,7 +18,7 @@ import Darwin
     private var output: Pipe?
     private var connecting: CheckedContinuation<Void, Error>?
 
-    func start(accounts: [SIPAccount]) async throws {
+    func start(accounts: [SIPAccount], monoDeviceAudio: Bool = true) async throws {
         stop()
         generation = UUID()
         let fm = FileManager.default
@@ -37,6 +39,8 @@ import Darwin
         audio_source coreaudio,default
         audio_alert coreaudio,default
         audio_path \(resources.appendingPathComponent("Engine/sounds").path)
+        ausrc_channels \(monoDeviceAudio ? 1 : 0)
+        auplay_channels \(monoDeviceAudio ? 1 : 0)
         audio_level no
         call_max_calls 8
         call_hold_other_calls yes
@@ -55,6 +59,7 @@ import Darwin
         module menu
         module ctrl_tcp
         module_app account
+        ctrl_tcp_trace yes
         ctrl_tcp_listen 127.0.0.1:\(port)
         """
         try writePrivate(accountText, to: folder.appendingPathComponent("accounts"))
@@ -65,7 +70,16 @@ import Darwin
         child.standardOutput = pipe
         child.standardError = pipe
         child.standardInput = FileHandle.nullDevice
-        pipe.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData }
+        outputLines = EngineOutputLines()
+        let outputGeneration = generation
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            Task { @MainActor in
+                guard let self, self.generation == outputGeneration else { return }
+                for line in self.outputLines.feed(data) { self.onOutput?(line) }
+            }
+        }
         output = pipe
         let currentGeneration = generation
         child.terminationHandler = { [weak self] child in

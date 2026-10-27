@@ -34,6 +34,7 @@ struct MainView: View {
     @State private var showHeaders = false
     @State private var showActivity = false
     @State private var deleting = false
+    @State private var workspaceTab = "calls"
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
@@ -76,6 +77,7 @@ struct MainView: View {
                 }.padding(16)
             }.navigationSplitViewColumnWidth(min: 230, ideal: 250, max: 300)
         } detail: {
+            TabView(selection: $workspaceTab) {
             ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack {
@@ -150,6 +152,7 @@ struct MainView: View {
                         } label: { Label("Account settings", systemImage: "slider.horizontal.3") }
                     }
                     Spacer(minLength: 0)
+                    HStack { Spacer(); Button("Open Debug") { workspaceTab = "debug" }.buttonStyle(.borderless) }
                     DisclosureGroup("Activity", isExpanded: $showActivity) {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 7) {
@@ -160,6 +163,8 @@ struct MainView: View {
                     }.foregroundStyle(.secondary)
                 }
             }.padding(28).frame(maxWidth: .infinity, minHeight: 620, alignment: .top).background(Color(nsColor: .windowBackgroundColor))
+            }.tabItem { Label("Calls", systemImage: "phone") }.tag("calls")
+            DebugView().tabItem { Label("Debug", systemImage: "ant") }.tag("debug")
             }
         }
         .tint(.teal)

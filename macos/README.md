@@ -9,6 +9,34 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Password storage in macOS Keychain; account preferences stored separately.
 
+## Version 0.1.2 diagnostics
+
+The detail pane has Calls and Debug tabs. Debug retains up to 50 calls and
+500 diagnostic entries, including completed calls. Select a call to copy its
+actual SIP Call-ID or inspect its first INVITE; use the SIP filter to inspect
+requests and responses, transport, endpoints and SDP. The Engine filter retains
+CoreAudio errors including the failing AudioQueue operation and OSStatus.
+
+Capture is enabled by default. The Capture switch pauses recording; Clear
+removes the captured history. Snapshot records microphone permission, macOS
+default input/output devices, sample rates/channels, registration state, call
+state and, during an active call, negotiated audio and RTP details. Copy and
+Export operate on redacted diagnostics. Authentication headers, ICE passwords
+and SDES media keys are hidden; SIP addresses and custom headers remain visible.
+Nothing is written to disk until Export. Closing the app clears this history.
+The opt-in engine setting `ctrl_tcp_trace yes` emits structured SIP_TRACE events,
+including decrypted SIP over TLS, only to the local control client.
+
+Error `[19]` is a local device error. The CoreAudio driver returns it when
+opening/starting input or output fails. The old app did not retain the detailed
+OSStatus, so past calls cannot be diagnosed retroactively. Reproduce the issue,
+open Debug, take a Snapshot and export the resulting diagnostics.
+
+Mono device audio is enabled by default and changes apply after reconnecting.
+Device I/O channel count is independent of the codec's advertised channels;
+Baresip's audio conversion handles that difference. The driver also initializes
+the complete CoreAudio stream description before opening a device.
+
 ## Version 0.1.1 fixes
 
 Account editing opens a fresh sheet for the selected account, with Keychain
@@ -78,12 +106,14 @@ macos/scripts/test.sh
 
 The Swift checks cover fragmented/coalesced control messages, Unicode byte
 lengths, invalid framing, header injection, account validation, codec order,
-password encoding and registration-based call availability.
+password encoding, registration-based call availability, debug redaction,
+first-INVITE retention, device-error explanations and bounded log retention.
 The bundled-engine check exercises the native process and TCP bridge with two
 accounts. The local SIP fixture checks two simultaneous digest-authenticated registrations using passwords
 containing spaces, quotes, backslashes and delimiters,
 account selection, headers, SDP codec order, hold/resume re-INVITEs, blind
-REFER, and attended REFER with Replaces. These tests use loopback only and
+REFER, attended REFER with Replaces, and structured bidirectional SIP trace
+events whose Call-ID matches the call events. These tests use loopback only and
 never contact a provider or open a microphone.
 
 A live provider test is still required for provider-specific authentication, NAT traversal,
@@ -99,7 +129,9 @@ Passwords: Keychain service `com.viegasjm.baresip-mac`.
 The engine receives nonsecret account settings in a private temporary directory
 with mode 0600. Passwords are read from Keychain and supplied in memory through
 the local control channel before registration. The temporary account file is
-deleted after startup and the runtime directory is removed on shutdown. Engine output is drained without writing SIP logs.
+deleted after startup and the runtime directory is removed on shutdown. Engine
+output and SIP traces are redacted and retained in bounded memory, with no log
+file unless the user explicitly exports diagnostics.
 The JSON control channel binds to a random loopback port and has no remote
 listener. Like upstream ctrl_tcp, it does not authenticate local clients.
 Password values are URI-encoded for control command parsing and decoded before

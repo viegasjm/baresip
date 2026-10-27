@@ -16,7 +16,51 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         try suite.testCodecOrderAndPasswordIsolation()
         suite.testConnectionStatusReflectsSelectedAccount()
         suite.testAccountCannotInjectConfiguration()
-        print("PASS: 6 protocol, credential and connection-state tests")
+        suite.testFirstInviteAndAuthenticationRedaction()
+        suite.testDebugHistoryAndRetention()
+        suite.testFragmentedEngineOutput()
+        print("PASS: 9 protocol, credential, connection-state and debug tests")
+    }
+    func testFirstInviteAndAuthenticationRedaction() {
+        var journal = DebugJournal()
+        let first = "INVITE sip:bob@example.com SIP/2.0\r\nCall-ID: test-call\r\nX-Trace: retained\r\nAuthorization: Digest secret-value\r\n folded-secret\r\nContent-Length: 0\r\n\r\n"
+        journal.packet(["message": first, "direction": "sent", "transport": "TLS", "source": "127.0.0.1:1", "destination": "127.0.0.1:2"])
+        journal.packet(["message": first.replacingOccurrences(of: "X-Trace: retained", with: "X-Trace: second"), "direction": "sent"])
+        XCTAssertEqual(journal.calls.count, 1)
+        XCTAssertTrue(journal.calls[0].firstInvite.contains("X-Trace: retained"))
+        let export = journal.export()
+        XCTAssertFalse(export.contains("secret-value"))
+        XCTAssertFalse(export.contains("folded-secret"))
+        XCTAssertTrue(export.contains("Authorization: [redacted]"))
+        XCTAssertTrue(export.contains("TLS"))
+        let sdp = DebugJournal.redact("a=ice-pwd:private-ice\r\na=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:private-key")
+        XCTAssertFalse(sdp.contains("private-ice"))
+        XCTAssertFalse(sdp.contains("private-key"))
+        XCTAssertEqual(DebugJournal.header("Call-ID", in: first), "test-call")
+        XCTAssertTrue(DebugJournal.redact("Proxy-Authorization: private\r\nWWW-Authenticate: nonce=private").contains("[redacted]"))
+        XCTAssertFalse(DebugJournal.redact("uapassword value=secret 0").contains("value=secret"))
+    }
+    func testDebugHistoryAndRetention() {
+        var journal = DebugJournal()
+        journal.event(["type": "CALL_OUTGOING", "id": "ended-call", "peeruri": "sip:bob@example.com"])
+        journal.event(["type": "CALL_CLOSED", "id": "ended-call", "param": "Operation not supported by device [19]"])
+        XCTAssertEqual(journal.calls[0].failure, "Operation not supported by device [19]")
+        XCTAssertTrue(journal.export(callID: "ended-call").contains("local audio device"))
+        XCTAssertTrue(DebugJournal.deviceExplanation("Device error [19]") != nil)
+        XCTAssertTrue(DebugJournal.deviceExplanation("486 Busy Here") == nil)
+        for index in 0..<600 { journal.add(category: "Engine", summary: "line \(index)", detail: "diagnostic") }
+        XCTAssertEqual(journal.entries.count, 500)
+        XCTAssertTrue(journal.calls.contains { $0.id == "ended-call" })
+    }
+    func testFragmentedEngineOutput() {
+        var output = EngineOutputLines()
+        let line = Data("coreaudio: café\nAuthorization: secret\n".utf8)
+        let split = line.firstIndex(of: 0xC3)! + 1
+        XCTAssertTrue(output.feed(line.prefix(split)).isEmpty)
+        let lines = output.feed(line.dropFirst(split))
+        XCTAssertEqual(lines[0], "coreaudio: café")
+        XCTAssertEqual(lines[1], "Authorization: [redacted]")
+        XCTAssertEqual(output.feed(Data(repeating: 65, count: 70000)).count, 1)
     }
     func testFragmentedAndConcatenatedNetstrings() throws {
         let first = try Netstrings.encode(["command": "dial", "params": "sip:joão@example.com"])

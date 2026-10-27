@@ -129,6 +129,7 @@ module opus
 module menu
 module ctrl_tcp
 module_app account
+ctrl_tcp_trace yes
 ctrl_tcp_listen 127.0.0.1:{port}
 ''')
         aor = f'sip:alice@127.0.0.1:{peer.port}'
@@ -161,6 +162,13 @@ ctrl_tcp_listen 127.0.0.1:{port}
             control.command('dial', f'sip:target@127.0.0.1:{peer.port}')
             call = control.event('CALL_ESTABLISHED')['id']
             invite = peer.requests('INVITE')[0]
+            trace = next((event for event in control.events if event.get('type') == 'SIP_TRACE' and event.get('message', '').startswith('INVITE ')), None)
+            assert trace is not None, 'Structured first INVITE trace is missing'
+            assert 'Call-ID: ' + call in trace['message'], 'Trace Call-ID differs from call events'
+            assert trace['direction'] == 'sent' and trace['transport'] == 'UDP'
+            assert 'X-Trace: hello world&test' in trace['message']
+            assert any(event.get('type') == 'SIP_TRACE' and event.get('direction') == 'received' and event.get('message', '').startswith('SIP/2.0 200') for event in control.events), 'Received SIP response trace missing'
+            print('PASS: structured sent/received SIP traces; first INVITE and exact SIP Call-ID')
             assert 'X-Trace: hello world&test' in invite, invite
             media = re.search(r'm=audio [^\r\n]+', invite)[0].split()[3:]
             assert media[0] == '8' and media[-3:-1] == ['9','0'], media

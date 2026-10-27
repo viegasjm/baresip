@@ -2,6 +2,11 @@ import SwiftUI
 import AVFoundation
 
 @MainActor final class Store: ObservableObject {
+    @Published var diagnostics = DebugJournal()
+    @Published var captureDiagnostics = true
+    @Published var monoDeviceAudio = UserDefaults.standard.object(forKey: "monoDeviceAudio") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(monoDeviceAudio, forKey: "monoDeviceAudio") }
+    }
     @Published var accounts: [SIPAccount] = []
     @Published var selectedAccount: UUID?
     @Published var calls: [SIPCall] = []
@@ -37,6 +42,10 @@ import AVFoundation
             if FileManager.default.fileExists(atPath: storage.path) { accounts = try JSONDecoder().decode([SIPAccount].self, from: Data(contentsOf: storage)) }
         } catch { self.error = "Could not load saved accounts: \(error.localizedDescription)" }
         selectedAccount = accounts.first?.id
+        engine.onOutput = { [weak self] line in
+            guard let self, self.captureDiagnostics else { return }
+            self.diagnostics.add(category: "Engine", summary: line, detail: line)
+        }
         engine.onEvent = { [weak self] in self?.event($0) }
         engine.onExit = { [weak self] message in
             self?.connected = false; self?.calls = []; self?.attendedTransfer = false
@@ -61,7 +70,7 @@ import AVFoundation
         run {
             self.connected = false; self.status = "Connecting…"; self.registrations = [:]; self.registrationErrors = [:]
             do {
-                try await self.engine.start(accounts: self.accounts)
+                try await self.engine.start(accounts: self.accounts, monoDeviceAudio: self.monoDeviceAudio)
                 self.appliedHeaders = [:]; self.connected = true; self.status = "SIP engine ready"
                 self.note("SIP engine connected")
                 await self.refreshRegistrations()
@@ -203,7 +212,32 @@ import AVFoundation
             else { registrations[account.aor] = "Registration failed" }
         }
     }
+    func captureSnapshot() {
+        run {
+            self.diagnostics.add(category: "Snapshot", summary: "macOS audio devices and permissions", detail: AudioDiagnostics.snapshot() + "\nNext connection mono device audio: \(self.monoDeviceAudio)")
+            guard self.connected else { return }
+            for command in ["about", "reginfo", "callstat"] {
+                do {
+                    let result = try await self.engine.command(command)
+                    self.diagnostics.add(category: "Snapshot", summary: command, detail: result)
+                } catch {
+                    self.diagnostics.add(category: "Snapshot", summary: command, detail: error.localizedDescription)
+                }
+            }
+            if let call = self.call {
+                _ = try await self.engine.command("uafind", call.account)
+                _ = try await self.engine.command("callfind", call.id)
+                let audio = try await self.engine.command("audio_debug")
+                self.diagnostics.add(category: "Snapshot", summary: "Negotiated audio and RTP", detail: audio, callID: call.id)
+            }
+        }
+    }
     private func event(_ object: [String: Any]) {
+        if object["type"] as? String == "SIP_TRACE" {
+            if captureDiagnostics { diagnostics.packet(object) }
+            return
+        }
+        if captureDiagnostics { diagnostics.event(object) }
         let type = object["type"] as? String ?? ""
         let aor = object["accountaor"] as? String ?? ""
         if type == "REGISTER_OK" { registrations[aor] = "Registered"; registrationErrors[aor] = nil; note("Account registered: \(aor)"); return }
@@ -222,7 +256,9 @@ import AVFoundation
             if id == transferConsult || id == transferOriginal {
                 attendedTransfer = false; transferOriginal = nil; transferConsult = nil
             }
-            note("Call ended: \(object["param"] as? String ?? "")")
+            let reason = object["param"] as? String ?? ""
+            note("Call ended: \(reason) · Call-ID: \(id)")
+            if DebugJournal.deviceExplanation(reason) != nil { note("Local audio device error. Open the Debug tab for microphone/speaker details.") }
             return
         }
         let states = ["CALL_INCOMING": "Incoming", "CALL_OUTGOING": "Calling", "CALL_RINGING": "Ringing", "CALL_PROGRESS": "Connecting", "CALL_ANSWERED": "Connected", "CALL_ESTABLISHED": "Connected"]
