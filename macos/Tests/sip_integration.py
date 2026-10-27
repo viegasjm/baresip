@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Exercise the bundled engine against a local SIP peer; no provider or audio devices."""
-import json, pathlib, re, socket, subprocess, tempfile, threading, time, uuid
+import hashlib, json, pathlib, re, socket, subprocess, tempfile, threading, time, uuid
+from urllib.parse import quote
+PASSWORD = 'test;password with spaces"\\&%=?+'
+REALM = "BaresipMacTest"
+NONCE = "local-test-nonce"
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 ENGINE = ROOT / 'macos/dist/Baresip Mac.app/Contents/Resources/Engine/baresip'
 
@@ -17,7 +21,7 @@ class Peer:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(('127.0.0.1', 0)); self.sock.settimeout(.2)
         self.port = self.sock.getsockname()[1]
-        self.messages = []; self.registrations = {}; self.running = True; self.supports_replaces = True
+        self.messages = []; self.registrations = {}; self.running = True; self.supports_replaces = True; self.auth_failures = []
         self.thread = threading.Thread(target=self.serve, daemon=True); self.thread.start()
     def serve(self):
         while self.running:
@@ -34,8 +38,22 @@ class Peer:
                 name, _, value = line.partition(':'); h[name.lower()] = value.strip()
             method = lines[0].split()[0]
             if method in ['ACK']: continue
-            if method == 'REGISTER': self.registrations[h['to']] = h.get('contact', '')
-            code = '202 Accepted' if method == 'REFER' else '200 OK'
+            challenge = method == 'REGISTER' and 'authorization' not in h
+            if method == 'REGISTER' and not challenge:
+                fields = {key: quoted or bare for key, quoted, bare in re.findall(r'(\w+)=(?:"([^"]*)"|([^, ]+))', h['authorization'])}
+                md5 = lambda value: hashlib.md5(value.encode()).hexdigest()
+                ha1 = md5(fields['username'] + ':' + REALM + ':' + PASSWORD)
+                ha2 = md5('REGISTER:' + fields['uri'])
+                if fields.get('qop'):
+                    expected = md5(':'.join([ha1, NONCE, fields['nc'], fields['cnonce'], fields['qop'], ha2]))
+                else:
+                    expected = md5(':'.join([ha1, NONCE, ha2]))
+                if fields['response'] != expected:
+                    self.auth_failures.append(fields['username'])
+                    challenge = True
+                else:
+                    self.registrations[h['to']] = h.get('contact', '')
+            code = '401 Unauthorized' if challenge else ('202 Accepted' if method == 'REFER' else '200 OK')
             body = ''
             if method == 'INVITE':
                 offer = text.split('\r\n\r\n', 1)[1]
@@ -47,6 +65,7 @@ class Peer:
             to = h.get('to', '')
             if ';tag=' not in to: to += ';tag=fixture'
             response = f"SIP/2.0 {code}\r\nVia: {h['via']}\r\nFrom: {h['from']}\r\nTo: {to}\r\nCall-ID: {h['call-id']}\r\nCSeq: {h['cseq']}\r\nContact: <sip:peer@127.0.0.1:{self.port}>\r\n"
+            if challenge: response += f'WWW-Authenticate: Digest realm="{REALM}", nonce="{NONCE}", algorithm=MD5, qop="auth"\r\n'
             if self.supports_replaces: response += 'Supported: replaces\r\n'
             response += 'Allow: INVITE, ACK, BYE, CANCEL, REFER, NOTIFY\r\n'
             if method == 'REGISTER': response += f"Contact: {h.get('contact','')}\r\nExpires: 300\r\n"
@@ -114,7 +133,7 @@ ctrl_tcp_listen 127.0.0.1:{port}
 ''')
         aor = f'sip:alice@127.0.0.1:{peer.port}'
         bob = f'sip:bob@127.0.0.1:{peer.port}'
-        folder.joinpath('accounts').write_text('\n'.join(f'<{a};transport=udp>;auth_pass="test;password with spaces";regint=300;audio_codecs=PCMA/8000/1,opus/48000/2,G722/16000/1,PCMU/8000/1' for a in [aor,bob]))
+        folder.joinpath('accounts').write_text('\n'.join(f'<{a};transport=udp>;regint=0;audio_codecs=PCMA/8000/1,opus/48000/2,G722/16000/1,PCMU/8000/1' for a in [aor,bob]))
         with folder.joinpath('engine.log').open('w') as log:
             process = subprocess.Popen([str(ENGINE), '-f', temp], stdin=subprocess.DEVNULL, stdout=log, stderr=log)
             def connect():
@@ -123,12 +142,17 @@ ctrl_tcp_listen 127.0.0.1:{port}
                 try: control = Control(port); return control
                 except OSError: return None
             wait_for(connect, 'Engine did not start')
+            for address in [aor, bob]:
+                control.command('uafind', address)
+                control.command('uapassword', 'value=' + quote(PASSWORD, safe='') + ' 0')
+                control.command('uareg', '300 0')
             try:
                 wait_for(lambda: len(peer.registrations) == 2, 'Both accounts must register')
             except AssertionError:
                 print('Registrations:', list(peer.registrations))
                 print(folder.joinpath('engine.log').read_text())
                 raise
+            assert not peer.auth_failures, 'Password did not survive the credential bridge'
             info = control.command('reginfo')
             assert aor in info and bob in info and info.count('OK') == 2, info
             control.command('uafind', aor)
@@ -180,7 +204,7 @@ ctrl_tcp_listen 127.0.0.1:{port}
             assert not result['ok'], 'Unsupported attended transfer must report failure'
             assert not any(x.startswith('INVITE sip:unsupported-consult') for x in peer.requests('INVITE'))
             print('PASS: unsupported attended transfer returns an error')
-            print('PASS: two simultaneous registrations; account selection; custom header insertion/removal; PCMA → Opus → G722 → PCMU offer order; hold/resume re-INVITEs; blind REFER; attended REFER with Replaces')
+            print('PASS: two simultaneous digest-authenticated registrations with delimiter-rich passwords; account selection; custom header insertion/removal; PCMA → Opus → G722 → PCMU offer order; hold/resume re-INVITEs; blind REFER; attended REFER with Replaces')
 finally:
     if control: control.sock.close()
     if process:

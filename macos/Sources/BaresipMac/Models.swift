@@ -46,12 +46,9 @@ struct SIPAccount: Codable, Identifiable, Equatable {
         guard codecs.contains(where: \.enabled) else { throw AppError.message("Enable at least one audio codec.") }
         for header in headers { try header.validate() }
     }
-    func configuration(password: String) throws -> String {
+    func configuration(startRegistration: Bool = true) throws -> String {
         try validate()
-        guard password.rangeOfCharacter(from: CharacterSet(charactersIn: "\"\\\r\n\0")) == nil else {
-            throw AppError.message("This build cannot encode passwords containing quotes, backslashes, or line breaks.")
-        }
-        var line = "<\(aor);transport=\(transport.lowercased())>;auth_pass=\"\(password)\";regint=\(register ? 300 : 0);audio_codecs=\(codecs.filter(\.enabled).map(\.name).joined(separator: ","))"
+        var line = "<\(aor);transport=\(transport.lowercased())>;regint=\(register && startRegistration ? 300 : 0);audio_codecs=\(codecs.filter(\.enabled).map(\.name).joined(separator: ","))"
         if !authUser.isEmpty { line += ";auth_user=\(authUser)" }
         if !proxy.isEmpty { line += ";outbound=\"sip:\(proxy);transport=\(transport.lowercased())\"" }
         return line
@@ -97,11 +94,21 @@ struct Netstrings {
 }
 enum Passwords {
     static let service = "com.viegasjm.baresip-mac"
-    static func read(_ id: UUID) -> String {
+    static func load(_ id: UUID) throws -> String {
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString, kSecReturnData as String: true]
         var value: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &value) == errSecSuccess, let data = value as? Data else { return "" }
+        let status = SecItemCopyMatching(q as CFDictionary, &value)
+        if status == errSecItemNotFound { return "" }
+        guard status == errSecSuccess, let data = value as? Data else {
+            throw AppError.message("Could not read this account's password from Keychain (\(status)). Allow access or enter the password again.")
+        }
         return String(decoding: data, as: UTF8.self)
+    }
+    static func commandValue(_ password: String) throws -> String {
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        let encoded = password.addingPercentEncoding(withAllowedCharacters: safe) ?? ""
+        guard encoded.utf8.count < 900 else { throw AppError.message("The encoded password exceeds the engine command size limit.") }
+        return "value=" + encoded
     }
     static func save(_ password: String, for id: UUID) throws {
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString]
@@ -118,4 +125,32 @@ enum Passwords {
     static func delete(_ id: UUID) {
         SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString] as CFDictionary)
     }
+}
+
+struct AccountEditorRequest: Identifiable {
+    let id = UUID()
+    let account: SIPAccount
+}
+struct AccountConnection {
+    enum Phase { case offline, starting, registering, registered, failed, direct }
+    let phase: Phase
+    init(engineConnected: Bool, starting: Bool, account: SIPAccount?, registration: String?) {
+        if starting { phase = .starting }
+        else if !engineConnected || account == nil { phase = .offline }
+        else if account?.register == false { phase = .direct }
+        else if registration == "Registered" { phase = .registered }
+        else if registration == "Registration failed" { phase = .failed }
+        else { phase = .registering }
+    }
+    var title: String {
+        switch phase {
+        case .offline: return "Offline"
+        case .starting: return "Connecting…"
+        case .registering: return "Registering…"
+        case .registered: return "Registered"
+        case .failed: return "Registration failed"
+        case .direct: return "Direct calls ready"
+        }
+    }
+    var canDial: Bool { phase == .registered || phase == .direct }
 }

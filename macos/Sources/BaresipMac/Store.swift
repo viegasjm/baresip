@@ -7,6 +7,7 @@ import AVFoundation
     @Published var calls: [SIPCall] = []
     @Published var selectedCall: String?
     @Published var registrations: [String: String] = [:]
+    @Published var registrationErrors: [String: String] = [:]
     @Published var destination = ""
     @Published var callHeaders: [SIPHeader] = []
     @Published var connected = false
@@ -26,6 +27,10 @@ import AVFoundation
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("BaresipMac/accounts.json")
     }
     var account: SIPAccount? { accounts.first { $0.id == selectedAccount } }
+    func connection(for account: SIPAccount?) -> AccountConnection {
+        AccountConnection(engineConnected: connected, starting: status == "Connecting…", account: account, registration: account.flatMap { registrations[$0.aor] })
+    }
+    var accountConnection: AccountConnection { connection(for: account) }
     var call: SIPCall? { calls.first { $0.id == selectedCall } }
     init() {
         do {
@@ -54,10 +59,10 @@ import AVFoundation
     func connect() {
         guard calls.isEmpty, !accounts.isEmpty else { return }
         run {
-            self.connected = false; self.status = "Connecting…"; self.registrations = [:]
+            self.connected = false; self.status = "Connecting…"; self.registrations = [:]; self.registrationErrors = [:]
             do {
                 try await self.engine.start(accounts: self.accounts)
-                self.appliedHeaders = [:]; self.connected = true; self.status = "Connected"
+                self.appliedHeaders = [:]; self.connected = true; self.status = "SIP engine ready"
                 self.note("SIP engine connected")
                 await self.refreshRegistrations()
                 self.registrationTask?.cancel()
@@ -74,11 +79,13 @@ import AVFoundation
     func disconnect() {
         registrationTask?.cancel(); registrationTask = nil
         engine.stop(); connected = false; calls = []; attendedTransfer = false
-        registrations = [:]; status = "Disconnected"
+        registrations = [:]; registrationErrors = [:]; status = "Disconnected"
     }
     func save(_ account: SIPAccount, password: String) throws {
         guard calls.isEmpty else { throw AppError.message("Finish your calls before changing accounts.") }
-        _ = try account.configuration(password: password)
+        guard !busy else { throw AppError.message("Wait for the current action to finish before saving.") }
+        try account.validate()
+        _ = try Passwords.commandValue(password)
         guard !accounts.contains(where: { $0.id != account.id && $0.aor == account.aor }) else {
             throw AppError.message("This SIP address is already configured.")
         }
@@ -120,6 +127,10 @@ import AVFoundation
     }
     func dial() {
         guard let account, connected else { return }
+        guard accountConnection.canDial else {
+            error = "This account is not registered. Edit its connection settings or retry registration before calling."
+            return
+        }
         run {
             let uri = try Self.dialURI(self.destination, account: account)
             for header in account.headers + self.callHeaders { try header.validate() }
@@ -187,7 +198,7 @@ import AVFoundation
         for account in accounts {
             if !account.register { registrations[account.aor] = "Direct calls"; continue }
             guard let line = clean.components(separatedBy: .newlines).first(where: { $0.contains(account.aor) }) else { continue }
-            if line.contains("OK") { registrations[account.aor] = "Registered" }
+            if line.contains("OK") { registrations[account.aor] = "Registered"; registrationErrors[account.aor] = nil }
             else if line.contains("zzz") { registrations[account.aor] = "Registering…" }
             else { registrations[account.aor] = "Registration failed" }
         }
@@ -195,8 +206,14 @@ import AVFoundation
     private func event(_ object: [String: Any]) {
         let type = object["type"] as? String ?? ""
         let aor = object["accountaor"] as? String ?? ""
-        if type == "REGISTER_OK" { registrations[aor] = "Registered"; note("Account registered: \(aor)"); return }
-        if type == "REGISTER_FAIL" { registrations[aor] = "Registration failed"; note("Registration failed: \(aor)"); return }
+        if type == "REGISTER_OK" { registrations[aor] = "Registered"; registrationErrors[aor] = nil; note("Account registered: \(aor)"); return }
+        if type == "REGISTER_FAIL" {
+            registrations[aor] = "Registration failed"
+            let reason = object["param"] as? String ?? "The SIP server did not accept this registration."
+            registrationErrors[aor] = reason
+            note("Registration failed: \(aor) — \(reason)")
+            return
+        }
         guard let id = object["id"] as? String else { return }
         if type == "CALL_CLOSED" {
             calls.removeAll { $0.id == id }

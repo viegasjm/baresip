@@ -13,9 +13,10 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         try suite.testFragmentedAndConcatenatedNetstrings()
         suite.testRejectsInvalidFramingAndOversizedMessages()
         try suite.testHeadersCannotInjectAdditionalSIPMessages()
-        try suite.testCodecOrderAndQuotedPasswords()
+        try suite.testCodecOrderAndPasswordIsolation()
+        suite.testConnectionStatusReflectsSelectedAccount()
         suite.testAccountCannotInjectConfiguration()
-        print("PASS: 5 protocol and configuration tests")
+        print("PASS: 6 protocol, credential and connection-state tests")
     }
     func testFragmentedAndConcatenatedNetstrings() throws {
         let first = try Netstrings.encode(["command": "dial", "params": "sip:joão@example.com"])
@@ -44,20 +45,40 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         header.name = "Bad:Name"
         XCTAssertThrowsError(try header.validate())
     }
-    func testCodecOrderAndQuotedPasswords() throws {
+    func testCodecOrderAndPasswordIsolation() throws {
         var account = SIPAccount(username: "alice", domain: "example.com")
         account.codecs = [Codec(name: "PCMA/8000/1"), Codec(name: "opus/48000/2"), Codec(name: "PCMU/8000/1", enabled: false)]
-        let line = try account.configuration(password: "pass;word with spaces")
-        XCTAssertTrue(line.contains("auth_pass=\"pass;word with spaces\""))
+        let line = try account.configuration(startRegistration: false)
+        XCTAssertFalse(line.contains("auth_pass"))
+        XCTAssertTrue(line.contains("regint=0"))
+        let password = "pass;word with spaces\"\\%&=+"
+        let encoded = try Passwords.commandValue(password)
+        XCTAssertEqual(String(encoded.dropFirst(6)).removingPercentEncoding, password)
+        XCTAssertFalse(encoded.contains(" "))
+        XCTAssertEqual(try Passwords.commandValue(""), "value=")
         XCTAssertTrue(line.contains("audio_codecs=PCMA/8000/1,opus/48000/2"))
         XCTAssertFalse(line.contains("PCMU"))
         account.codecs = account.codecs.map { Codec(name: $0.name, enabled: false) }
-        XCTAssertThrowsError(try account.configuration(password: "secret"))
+        XCTAssertThrowsError(try account.configuration())
+    }
+    func testConnectionStatusReflectsSelectedAccount() {
+        let account = SIPAccount(username: "alice", domain: "example.com")
+        let failed = AccountConnection(engineConnected: true, starting: false, account: account, registration: "Registration failed")
+        XCTAssertEqual(failed.title, "Registration failed")
+        XCTAssertFalse(failed.canDial)
+        let registered = AccountConnection(engineConnected: true, starting: false, account: account, registration: "Registered")
+        XCTAssertEqual(registered.title, "Registered")
+        XCTAssertTrue(registered.canDial)
+        XCTAssertFalse(AccountConnection(engineConnected: true, starting: false, account: account, registration: nil).canDial)
+        XCTAssertFalse(AccountConnection(engineConnected: false, starting: false, account: account, registration: "Registered").canDial)
+        var direct = account
+        direct.register = false
+        XCTAssertTrue(AccountConnection(engineConnected: true, starting: false, account: direct, registration: nil).canDial)
     }
     func testAccountCannotInjectConfiguration() {
         var account = SIPAccount(username: "alice", domain: "example.com\nmodule evil")
-        XCTAssertThrowsError(try account.configuration(password: "secret"))
+        XCTAssertThrowsError(try account.configuration())
         account.domain = "example.com"
-        XCTAssertThrowsError(try account.configuration(password: "secret\";regint=0"))
+        XCTAssertThrowsError(try Passwords.commandValue(String(repeating: " ", count: 400)))
     }
 }

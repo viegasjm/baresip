@@ -1249,6 +1249,33 @@ static int cmd_uareg(struct re_printf *pf, void *arg)
 }
 
 
+/* Supply credentials through the local control channel before registering.
+ * URI encoding keeps spaces and delimiters out of command parsing. */
+static int cmd_password(struct re_printf *pf, void *arg)
+{
+	const struct cmd_arg *carg = arg;
+	struct pl word, index, value;
+	struct ua *ua = menu_ua_carg(pf, carg, &word, &index);
+	struct mbuf buffer;
+	int err;
+
+	if (!ua || word.l < 6 || memcmp(word.p, "value=", 6))
+		return EINVAL;
+
+	value = word;
+	pl_advance(&value, 6);
+	mbuf_init(&buffer);
+	err = mbuf_printf(&buffer, "%H", uri_header_unescape, &value);
+	if (!err)
+		err = mbuf_write_u8(&buffer, 0);
+	if (!err)
+		err = account_set_auth_pass(ua_account(ua),
+					    (const char *)buffer.buf);
+	mem_deref(buffer.buf);
+	return err;
+}
+
+
 static int cmd_addheader(struct re_printf *pf, void *arg)
 {
 	const struct cmd_arg *carg = arg;
@@ -1489,6 +1516,7 @@ static const struct cmd cmdv[] = {
 {"uafind",    0,    CMD_PRM, "Find User-Agent <aor>",   cmd_ua_find          },
 {"uanew",     0,    CMD_PRM, "Create User-Agent",       create_ua            },
 {"uareg",     0,    CMD_PRM, "UA register <regint> [index]", cmd_uareg       },
+{"uapassword",0,    CMD_PRM, "Set URI-encoded UA password", cmd_password    },
 {"uaaddheader", 0,  CMD_PRM, "Add custom header to UA",      cmd_addheader   },
 {"uarmheader",  0,  CMD_PRM, "Remove custom header from UA", cmd_rmheader    },
 {"vidsrc",    0,    CMD_PRM, "Switch video source",     switch_video_source  },

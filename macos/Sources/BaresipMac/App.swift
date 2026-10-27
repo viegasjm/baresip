@@ -30,8 +30,7 @@ import AppKit
 }
 struct MainView: View {
     @EnvironmentObject var store: Store
-    @State private var editing: SIPAccount?
-    @State private var showEditor = false
+    @State private var editor: AccountEditorRequest?
     @State private var showHeaders = false
     @State private var showActivity = false
     @State private var deleting = false
@@ -41,7 +40,7 @@ struct MainView: View {
                 HStack {
                     Label("ACCOUNTS", systemImage: "person.crop.circle.badge.checkmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
-                    Button { editing = nil; showEditor = true } label: { Image(systemName: "plus") }.buttonStyle(.borderless).help("Add SIP account").disabled(!store.calls.isEmpty || store.busy)
+                    Button { editor = AccountEditorRequest(account: SIPAccount()) } label: { Image(systemName: "plus") }.buttonStyle(.borderless).help("Add SIP account").disabled(!store.calls.isEmpty || store.busy)
                 }.padding(16)
                 List(selection: $store.selectedAccount) {
                     ForEach(store.accounts) { account in
@@ -50,9 +49,11 @@ struct MainView: View {
                             Text(account.aor.replacingOccurrences(of: "sip:", with: "")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             HStack(spacing: 5) {
                                 Circle().fill(registrationColor(account)).frame(width: 6, height: 6)
-                                Text(store.registrations[account.aor] ?? "Offline").font(.caption2).foregroundStyle(.secondary)
+                                Text(store.connection(for: account).title).font(.caption2).foregroundStyle(.secondary)
                             }
                         }.padding(.vertical, 7).tag(account.id)
+                        .contextMenu { Button("Edit account") { editor = AccountEditorRequest(account: account) } }
+                        .onTapGesture(count: 2) { store.selectedAccount = account.id; editor = AccountEditorRequest(account: account) }
                     }
                 }.listStyle(.sidebar)
                 if !store.calls.isEmpty {
@@ -83,8 +84,8 @@ struct MainView: View {
                         Text(store.account?.aor ?? "Connect your accounts and take control of your calls.").foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Circle().fill(store.connected ? .green : .secondary).frame(width: 7, height: 7)
-                    Text(store.status).font(.callout).foregroundStyle(.secondary)
+                    Circle().fill(connectionColor(store.accountConnection)).frame(width: 7, height: 7)
+                    Text(store.accountConnection.title).font(.callout).foregroundStyle(store.accountConnection.phase == .failed ? Color.red : Color.secondary)
                     Button(store.connected ? "Disconnect" : "Connect") {
                         if store.connected { store.disconnect() } else { store.connect() }
                     }.disabled(store.accounts.isEmpty || store.busy || !store.calls.isEmpty)
@@ -96,10 +97,22 @@ struct MainView: View {
                     } description: {
                         Text("Add a SIP account to get started. Manage multiple providers, choose your codecs, and send custom headers.")
                     } actions: {
-                        Button("Add SIP account") { editing = nil; showEditor = true }.buttonStyle(.borderedProminent).controlSize(.large)
+                        Button("Add SIP account") { editor = AccountEditorRequest(account: SIPAccount()) }.buttonStyle(.borderedProminent).controlSize(.large)
                     }
                     Spacer()
                 } else {
+                    if store.accountConnection.phase == .failed, let account = store.account {
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label("This account is not registered", systemImage: "exclamationmark.triangle.fill").font(.headline).foregroundStyle(.red)
+                                Text(store.registrationErrors[account.aor] ?? "Check the username, password, domain, and transport, then retry registration.").textSelection(.enabled)
+                                HStack {
+                                    Button("Edit account") { editor = AccountEditorRequest(account: account) }.buttonStyle(.borderedProminent)
+                                    Button("Retry registration") { store.connect() }.disabled(store.busy || !store.calls.isEmpty)
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        }
+                    }
                     if let call = store.call { callCard(call) }
                     GroupBox {
                         VStack(alignment: .leading, spacing: 16) {
@@ -108,7 +121,7 @@ struct MainView: View {
                                     .textFieldStyle(.roundedBorder).font(.title3).onSubmit { store.dial() }
                                 Button { store.dial() } label: { Label("Call", systemImage: "phone.fill").frame(width: 74) }
                                     .buttonStyle(.borderedProminent).tint(.teal).controlSize(.large)
-                                    .disabled(!store.connected || store.busy || store.destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    .disabled(!store.accountConnection.canDial || store.busy || store.destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             }
                             HStack {
                                 Label("Outgoing via \(store.account?.displayName ?? "selected account")", systemImage: "arrow.up.right").font(.caption).foregroundStyle(.secondary)
@@ -131,7 +144,7 @@ struct MainView: View {
                                     Text("\(account.transport) transport · \(account.headers.count) default SIP headers").font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Button("Edit account") { editing = account; showEditor = true }.disabled(!store.calls.isEmpty || store.busy)
+                                Button("Edit account") { editor = AccountEditorRequest(account: account) }
                                 Button(role: .destructive) { deleting = true } label: { Image(systemName: "trash") }.disabled(!store.calls.isEmpty || store.busy).help("Delete account")
                             }.padding(12)
                         } label: { Label("Account settings", systemImage: "slider.horizontal.3") }
@@ -150,7 +163,7 @@ struct MainView: View {
             }
         }
         .tint(.teal)
-        .sheet(isPresented: $showEditor) { AccountEditor(account: editing ?? SIPAccount()).environmentObject(store) }
+        .sheet(item: $editor) { request in AccountEditor(account: request.account).id(request.id).environmentObject(store) }
         .alert("Unable to complete action", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK") { store.error = nil }
         } message: { Text(store.error ?? "") }
@@ -158,8 +171,14 @@ struct MainView: View {
             Button("Delete account", role: .destructive) { if let account = store.account { store.delete(account) } }
         }
     }
-    private func registrationColor(_ account: SIPAccount) -> Color {
-        switch store.registrations[account.aor] { case "Registered", "Direct calls": return .green; case "Registration failed": return .red; case "Registering…": return .orange; default: return .gray }
+    private func registrationColor(_ account: SIPAccount) -> Color { connectionColor(store.connection(for: account)) }
+    private func connectionColor(_ connection: AccountConnection) -> Color {
+        switch connection.phase {
+        case .registered, .direct: return .green
+        case .failed: return .red
+        case .starting, .registering: return .orange
+        case .offline: return .gray
+        }
     }
     private func callCard(_ call: SIPCall) -> some View {
         GroupBox {
@@ -227,18 +246,20 @@ struct AccountEditor: View {
     @State var account: SIPAccount
     @State private var password = ""
     @State private var validationError: String?
+    @State private var passwordLoading = true
+    @State private var passwordReadFailed = false
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
                 Image(systemName: "person.crop.circle.badge.plus").font(.title).foregroundStyle(.teal)
-                VStack(alignment: .leading, spacing: 3) { Text("SIP account").font(.title2.weight(.semibold)); Text("Your provider, your preferences.").foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 3) { Text(store.accounts.contains(where: { $0.id == account.id }) ? "Edit account" : "Add SIP account").font(.title2.weight(.semibold)); Text("Your provider, your preferences.").foregroundStyle(.secondary) }
             }
             TabView {
                 Form {
                     TextField("Account name", text: $account.label)
                     TextField("Username", text: $account.username)
                     TextField("Domain / host:port", text: $account.domain)
-                    SecureField("Password", text: $password)
+                    SecureField("Password", text: $password).disabled(passwordLoading)
                     TextField("Authentication username (optional)", text: $account.authUser)
                     TextField("Outbound proxy host:port (optional)", text: $account.proxy)
                     Picker("Transport", selection: $account.transport) { Text("TLS").tag("TLS"); Text("TCP").tag("TCP"); Text("UDP").tag("UDP") }
@@ -266,15 +287,23 @@ struct AccountEditor: View {
                     }.padding(20)
                 }.tabItem { Label("SIP headers", systemImage: "text.alignleft") }
             }
+            if passwordLoading { ProgressView("Loading password from Keychain…").controlSize(.small) }
+            if !store.calls.isEmpty { Text("Finish your calls before saving changes.").font(.caption).foregroundStyle(.secondary) }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save account") {
                     do { try store.save(account, password: password); dismiss() } catch { validationError = error.localizedDescription }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                .disabled(passwordLoading || store.busy || !store.calls.isEmpty || (passwordReadFailed && password.isEmpty))
             }
         }.padding(24).frame(width: 640, height: 560).tint(.teal)
-        .onAppear { password = Passwords.read(account.id) }
+        .task {
+            let id = account.id
+            do { password = try await Task.detached { try Passwords.load(id) }.value }
+            catch { passwordReadFailed = true; validationError = error.localizedDescription }
+            passwordLoading = false
+        }
         .alert("Check account settings", isPresented: Binding(get: { validationError != nil }, set: { if !$0 { validationError = nil } })) { Button("OK") { validationError = nil } } message: { Text(validationError ?? "") }
     }
 }

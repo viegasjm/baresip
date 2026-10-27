@@ -9,6 +9,15 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Password storage in macOS Keychain; account preferences stored separately.
 
+## Version 0.1.1 fixes
+
+Account editing opens a fresh sheet for the selected account, with Keychain
+loading off the main UI thread. The header and sidebar show the selected
+account's registration state. Failed registration shows the server's reason
+with Edit and Retry actions, and calls stay disabled until registration succeeds.
+Passwords are now supplied to the engine through the local control channel
+before registering, rather than through the configuration parser.
+
 ## Run
 
 Open `macos/dist/Baresip Mac.app` after building. Add an account, enter the
@@ -26,7 +35,8 @@ Choose Blind transfer, or Consult first and then Complete transfer. Cancel
 transfer returns to the original party. Your SIP server must support REFER
 and, for attended transfer, Replaces.
 
-Editing accounts restarts registration and is disabled during active calls.
+Account details can be opened at any time. Saving edits restarts registration
+and is disabled during active calls or another operation.
 The current audio devices are the macOS system defaults. This first version
 does not expose device selection, STUN/TURN settings, recording, or video.
 
@@ -67,14 +77,16 @@ macos/scripts/test.sh
 ```
 
 The Swift checks cover fragmented/coalesced control messages, Unicode byte
-lengths, invalid framing, header injection, account validation and codec order.
+lengths, invalid framing, header injection, account validation, codec order,
+password encoding and registration-based call availability.
 The bundled-engine check exercises the native process and TCP bridge with two
-accounts. The local SIP fixture checks two simultaneous registrations,
+accounts. The local SIP fixture checks two simultaneous digest-authenticated registrations using passwords
+containing spaces, quotes, backslashes and delimiters,
 account selection, headers, SDP codec order, hold/resume re-INVITEs, blind
 REFER, and attended REFER with Replaces. These tests use loopback only and
 never contact a provider or open a microphone.
 
-A live provider test is still required for authentication, NAT traversal,
+A live provider test is still required for provider-specific authentication, NAT traversal,
 two-way audio, incoming calls, microphone permissions and end-to-end transfers.
 Visual UI inspection also remains to be performed on a Mac with accessibility
 permission enabled. Tests of REFER generation do not prove that a PBX completes
@@ -84,14 +96,14 @@ a transfer successfully.
 
 Nonsecret account preferences: `~/Library/Application Support/BaresipMac/accounts.json`.
 Passwords: Keychain service `com.viegasjm.baresip-mac`.
-The engine receives an account file in a private temporary directory with mode
-0600; the app deletes the file after the engine loads it and removes the
-runtime directory on shutdown. A crash during startup may leave that file in
-the OS temporary directory. Engine output is drained without writing SIP logs.
+The engine receives nonsecret account settings in a private temporary directory
+with mode 0600. Passwords are read from Keychain and supplied in memory through
+the local control channel before registration. The temporary account file is
+deleted after startup and the runtime directory is removed on shutdown. Engine output is drained without writing SIP logs.
 The JSON control channel binds to a random loopback port and has no remote
 listener. Like upstream ctrl_tcp, it does not authenticate local clients.
-Passwords containing quotes, backslashes or newlines are rejected by this
-first version's configuration writer.
+Password values are URI-encoded for control command parsing and decoded before
+SIP authentication; they are never written to the account file.
 
 ## License
 

@@ -26,7 +26,7 @@ import Darwin
         let folder = fm.temporaryDirectory.appendingPathComponent("BaresipMac-\(UUID().uuidString)")
         try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         runtime = folder
-        let accountText = try accounts.map { try $0.configuration(password: Passwords.read($0.id)) }.joined(separator: "\n") + "\n"
+        let accountText = try accounts.map { try $0.configuration(startRegistration: false) }.joined(separator: "\n") + "\n"
         let port = try Self.freePort()
         let config = """
         sip_listen 0.0.0.0:0
@@ -82,18 +82,31 @@ import Darwin
             do {
                 try await connect(port: port)
                 _ = try await command("about")
-                ready = true
-                // Accounts have been loaded into memory. Remove the plaintext password file.
-                try? fm.removeItem(at: folder.appendingPathComponent("accounts"))
-                return
+                break
             } catch {
                 connection?.cancel()
                 connection = nil
                 try await Task.sleep(nanoseconds: 150_000_000)
             }
         }
-        stop()
-        throw AppError.message("Could not connect to the SIP engine.")
+        guard connection != nil else {
+            stop(); throw AppError.message("Could not connect to the SIP engine.")
+        }
+        do {
+            for account in accounts {
+                let id = account.id
+                let password = try await Task.detached { try Passwords.load(id) }.value
+                _ = try await command("uafind", account.aor)
+                _ = try await command("uapassword", "\(try Passwords.commandValue(password)) 0")
+                if account.register { _ = try await command("uareg", "300 0") }
+            }
+            ready = true
+            // Account settings are loaded; passwords were supplied only through the control channel.
+            try? fm.removeItem(at: folder.appendingPathComponent("accounts"))
+            return
+        } catch {
+            stop(); throw error
+        }
     }
     private func writePrivate(_ text: String, to url: URL) throws {
         guard FileManager.default.createFile(atPath: url.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else { throw AppError.message("Could not write the private SIP configuration.") }
