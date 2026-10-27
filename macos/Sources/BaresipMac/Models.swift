@@ -61,6 +61,7 @@ struct SIPCall: Identifiable, Equatable {
     var state: String
     var incoming: Bool
     var held = false
+    var audioInput = ""
     var muted = false
     var started = Date()
     var connected: Bool { state == "Connected" }

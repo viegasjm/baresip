@@ -9,7 +9,35 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Password storage in macOS Keychain; account preferences stored separately.
 
-## Version 0.1.4 missing microphone recovery
+## Version 0.1.5 calls without a microphone and file input
+
+A missing microphone, unavailable selected input, or denied microphone permission
+now falls back to listen-only calling. SIP calls still connect and receive audio;
+they negotiate `recvonly` rather than trying to open an unusable microphone.
+Answering incoming calls uses the same behavior. A working selected speaker is
+still required by the app.
+
+The Audio tab offers Microphone when available, Listen only, and Audio file.
+Choose a file there to send it when the next call connects. During an active
+call, use **Play audio file…** to send a file to that call, or **Listen only** to
+stop sending. Other calls are unaffected. Files play once; end-of-file leaves
+the call connected. Restarting a source, including hold/resume, restarts the
+file from the beginning.
+
+Audio macOS can decode is converted locally to a canonical 16 kHz, mono,
+16-bit PCM WAV for Baresip. WAV, AIFF and M4A conversion were tested. Files must
+be no longer than 10 minutes; decoding errors are shown without ending the
+call. Private converted copies are retained for the app session so other calls
+can still use their chosen files. Clear (while idle) or quitting removes them.
+The original files are unchanged.
+
+The bundled `aufile` module supplies the audio. New local commands configure
+future-call sources without touching active calls (`ausrcdefault`) or change
+only the selected call and renegotiate media (`callsource`). Source changes
+stop/rebuild the call's transmit pipeline so file sample rates are resampled
+correctly. Consult calls retain the original media direction.
+
+## Version 0.1.4 missing microphone recovery (superseded by 0.1.5)
 
 A missing microphone is a recoverable call error: accounts stay connected,
 call controls become available again, and diagnostics and reconnect still work.
@@ -27,7 +55,7 @@ choices, device information and Refresh. Choices are saved as stable CoreAudio
 UIDs, so duplicate device names and renamed devices remain distinguishable.
 Changing a device reconnects idle accounts; controls are locked during calls.
 A missing or unplugged microphone is detected before asking for microphone
-permission or starting a call, with a clear message pointing to the Audio tab.
+permission; automatic mode then connects the call in listen-only mode.
 
 Further testing reproduced error `[19]` as `AudioQueueStart -66680`
 (`kAudioQueueErr_InvalidDevice`) when the development host had no microphone.
@@ -78,7 +106,8 @@ before registering, rather than through the configuration parser.
 Open `macos/dist/Baresip Mac.app` after building. Add an account, enter the
 username and domain separately, choose transport and codecs, and click Connect.
 TLS verifies the server certificate using the CA bundle included in the app.
-Allow microphone access when first making or answering a call.
+Allow microphone access to speak through a microphone; otherwise calls continue
+in listen-only mode. File input never requests microphone permission.
 
 Headers are appended to outgoing INVITEs. They are not a raw SIP message editor
 and do not replace Baresip's management of From, Contact, Via or authentication.
@@ -142,7 +171,9 @@ containing spaces, quotes, backslashes and delimiters,
 account selection, headers, SDP codec order, hold/resume re-INVITEs, blind
 REFER, attended REFER with Replaces, and structured bidirectional SIP trace
 events whose Call-ID matches the call events. These tests use loopback only and
-never contact a provider or open a microphone.
+never contact a provider or open a microphone. The app-state fixture opens
+the selected speaker, returns digital silence, and discards synthetic file RTP
+at its local peer; it verifies real listen-only calls and live file injection.
 
 A live provider test is still required for provider-specific authentication, NAT traversal,
 two-way audio, incoming calls, microphone permissions and end-to-end transfers.

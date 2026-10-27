@@ -1,10 +1,11 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     var store: Store?
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ notification: Notification) { store?.disconnect() }
+    func applicationWillTerminate(_ notification: Notification) { store?.disconnect(); store?.removeTemporaryAudio() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -34,6 +35,8 @@ struct MainView: View {
     @State private var showHeaders = false
     @State private var showActivity = false
     @State private var deleting = false
+    @State private var showAudioFilePicker = false
+    @State private var audioFileCallID: String?
     @State private var workspaceTab = "calls"
     var body: some View {
         NavigationSplitView {
@@ -169,6 +172,12 @@ struct MainView: View {
             }
         }
         .tint(.teal)
+        .fileImporter(isPresented: $showAudioFilePicker, allowedContentTypes: [.audio]) { result in
+            switch result {
+            case .success(let url): store.importAudioFile(url, callID: audioFileCallID)
+            case .failure(let error): store.error = error.localizedDescription
+            }
+        }
         .sheet(item: $editor) { request in AccountEditor(account: request.account).id(request.id).environmentObject(store) }
         .alert("Unable to complete action", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK") { store.error = nil }
@@ -210,6 +219,12 @@ struct MainView: View {
                     Button { store.control("hangup") } label: { Label(call.state == "Incoming" ? "Decline" : "End call", systemImage: "phone.down.fill") }.buttonStyle(.borderedProminent).tint(.red)
                 }.disabled(store.busy)
                 if call.connected {
+                    HStack {
+                        Label(call.audioInput.isEmpty ? "Call audio" : call.audioInput, systemImage: "waveform").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Play audio file…") { audioFileCallID = call.id; showAudioFilePicker = true }
+                        Button("Listen only") { store.stopSendingAudio() }
+                    }.disabled(store.busy || call.held)
                     Divider()
                     if store.attendedTransfer {
                         HStack {

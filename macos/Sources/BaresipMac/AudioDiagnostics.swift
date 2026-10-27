@@ -29,15 +29,24 @@ struct AudioRouting: Equatable {
             guard !uid.isEmpty, uid.utf8.count < 128, uid.rangeOfCharacter(from: CharacterSet(charactersIn: ",\r\n\0")) == nil else { throw AppError.message("The audio device identifier cannot be used in this configuration.") }
         }
     }
-    func validateForCall(in catalog: AudioDeviceCatalog) throws {
+    func callInput(mode: CallInputMode, file: URL?, in catalog: AudioDeviceCatalog, microphoneAllowed: Bool) throws -> CallAudioInput {
         try validate()
-        guard catalog.resolve(inputUID, input: true) != nil else {
-            throw AppError.message(inputUID == "default" ? "No microphone is available. Connect a USB/Bluetooth microphone or headset, then choose it in the Audio tab." : "The selected microphone is unavailable. Choose an available input in the Audio tab.")
-        }
         guard catalog.resolve(outputUID, input: false) != nil else {
             throw AppError.message("The selected speaker is unavailable. Choose an available output in the Audio tab.")
         }
+        switch mode {
+        case .listen: return .listen
+        case .file:
+            guard let file, FileManager.default.isReadableFile(atPath: file.path), file.path.utf8.count < 128,
+                  file.path.rangeOfCharacter(from: CharacterSet(charactersIn: ",\r\n\0")) == nil else {
+                throw AppError.message("Choose an audio file in the Audio tab first.")
+            }
+            return .file(file)
+        case .automatic:
+            return microphoneAllowed && catalog.resolve(inputUID, input: true) != nil ? .microphone(inputUID) : .listen
+        }
     }
+
 }
 enum AudioDiagnostics {
     static func catalog() -> AudioDeviceCatalog {

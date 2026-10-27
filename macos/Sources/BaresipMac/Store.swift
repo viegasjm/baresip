@@ -7,6 +7,10 @@ import AVFoundation
     @Published var monoDeviceAudio = UserDefaults.standard.object(forKey: "monoDeviceAudio") as? Bool ?? true {
         didSet { UserDefaults.standard.set(monoDeviceAudio, forKey: "monoDeviceAudio") }
     }
+    @Published var inputMode = CallInputMode.automatic
+    @Published var audioFile: PreparedAudioFile?
+    private var preparedAudioFiles: [PreparedAudioFile] = []
+    private var nextCallInput = ""
     @Published var audioDevices = AudioDeviceCatalog()
     @Published var inputDeviceUID = UserDefaults.standard.string(forKey: "inputDeviceUID") ?? "default"
     @Published var outputDeviceUID = UserDefaults.standard.string(forKey: "outputDeviceUID") ?? "default"
@@ -26,7 +30,7 @@ import AVFoundation
     @Published var activity: [String] = []
     @Published var transferTarget = ""
     @Published var attendedTransfer = false
-    private let engine = Engine()
+    private let engine: Engine
     private var appliedHeaders: [String: Set<String>] = [:]
     private var transferOriginal: String?
     private var transferConsult: String?
@@ -44,7 +48,8 @@ import AVFoundation
     }
     var accountConnection: AccountConnection { connection(for: account) }
     var call: SIPCall? { calls.first { $0.id == selectedCall } }
-    init(storageURL: URL? = nil, audioCatalog: @escaping () -> AudioDeviceCatalog = AudioDiagnostics.catalog) {
+    init(storageURL: URL? = nil, engine testEngine: Engine? = nil, audioCatalog: @escaping () -> AudioDeviceCatalog = AudioDiagnostics.catalog) {
+        self.engine = testEngine ?? Engine()
         self.storageOverride = storageURL
         self.audioCatalog = audioCatalog
         audioDevices = audioCatalog()
@@ -138,12 +143,49 @@ import AVFoundation
         UserDefaults.standard.set(outputDeviceUID, forKey: "outputDeviceUID")
         if connected { connect() }
     }
-    private func microphone() async throws {
+    private func prepareCallInput() async throws -> CallAudioInput {
         refreshAudioDevices()
-        try audioRouting.validateForCall(in: audioDevices)
-        let allowed = await AVCaptureDevice.requestAccess(for: .audio)
-        guard allowed else { throw AppError.message("Allow Baresip Mac to use your microphone in System Settings → Privacy & Security → Microphone.") }
+        let hasMicrophone = audioDevices.resolve(inputDeviceUID, input: true) != nil
+        var allowed = false
+        if inputMode == .automatic && hasMicrophone {
+            allowed = await AVCaptureDevice.requestAccess(for: .audio)
+        }
+        let input = try audioRouting.callInput(mode: inputMode, file: audioFile?.url, in: audioDevices, microphoneAllowed: allowed)
+        if input == .listen && inputMode == .automatic {
+            note(hasMicrophone ? "Microphone access unavailable; continuing in listen-only mode" : "No microphone available; continuing in listen-only mode")
+        }
+        return input
     }
+    func importAudioFile(_ url: URL, callID: String? = nil) {
+        run {
+            let prepared = try await Task.detached { try AudioFileInput.prepare(url) }.value
+            self.preparedAudioFiles.append(prepared)
+            self.audioFile = prepared
+            self.inputMode = .file
+            self.note("Audio file ready: \(prepared.name)")
+            if let callID {
+                guard let call = self.calls.first(where: { $0.id == callID }), call.connected, !call.held else {
+                    throw AppError.message("The selected call is no longer available for playback. The file is ready for your next call.")
+                }
+                _ = try await self.engine.command("callfind", call.id)
+                _ = try await self.engine.command("callsource", "aufile,\(prepared.url.path)")
+                if let index = self.calls.firstIndex(where: { $0.id == call.id }) { self.calls[index].audioInput = "Playing \(prepared.name)" }
+                self.note("Playing \(prepared.name) into call · Call-ID: \(call.id)")
+            }
+        }
+    }
+    func stopSendingAudio() {
+        let id = call?.id
+        control("callsource", params: "none") { [weak self] in
+            guard let self, let id, let index = self.calls.firstIndex(where: { $0.id == id }) else { return }
+            self.calls[index].audioInput = CallAudioInput.listen.title
+        }
+    }
+    func clearAudioFile() {
+        guard calls.isEmpty, !busy else { return }
+        removeTemporaryAudio(); audioFile = nil; inputMode = .automatic
+    }
+    func removeTemporaryAudio() { preparedAudioFiles.forEach { $0.remove() }; preparedAudioFiles.removeAll() }
     static func dialURI(_ input: String, account: SIPAccount) throws -> String {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
@@ -162,7 +204,7 @@ import AVFoundation
         run {
             let uri = try Self.dialURI(self.destination, account: account)
             for header in account.headers + self.callHeaders { try header.validate() }
-            try await self.microphone()
+            let input = try await self.prepareCallInput()
             _ = try await self.engine.command("uafind", account.aor)
             // uafind raises this account to index zero in Baresip's UA list.
             let headers = account.headers + self.callHeaders
@@ -172,17 +214,26 @@ import AVFoundation
             }
             self.appliedHeaders[account.aor] = names
             for header in headers { _ = try await self.engine.command("uaaddheader", "\(header.commandPair) 0") }
-            _ = try await self.engine.command("dial", uri)
+            if let source = input.source { _ = try await self.engine.command("ausrcdefault", source) }
+            self.nextCallInput = input == .listen ? input.title : (self.inputMode == .file ? "Playing \(self.audioFile?.name ?? "audio file")" : input.title)
+            _ = try await self.engine.command("dialdir", "\(uri) audio=\(input.direction) video=inactive")
             self.note("Calling \(uri) using \(account.displayName)")
         }
     }
     func control(_ command: String, params: String = "", onSuccess: (() -> Void)? = nil) {
         guard let call, connected else { return }
         run {
-            if command == "accept" { try await self.microphone() }
+            let input = command == "accept" ? try await self.prepareCallInput() : nil
             _ = try await self.engine.command("uafind", call.account)
             if call.state != "Incoming" { _ = try await self.engine.command("callfind", call.id) }
-            _ = try await self.engine.command(command, command == "accept" || command == "hangup" ? call.id : params)
+            if let input {
+                _ = try await self.engine.command("callfind", call.id)
+                if let source = input.source { _ = try await self.engine.command("callsource", source) }
+                _ = try await self.engine.command("acceptdir", "audio=\(input.direction) video=inactive callid=\(call.id)")
+                if let index = self.calls.firstIndex(where: { $0.id == call.id }) { self.calls[index].audioInput = input.title }
+            } else {
+                _ = try await self.engine.command(command, command == "hangup" ? call.id : params)
+            }
             if command == "mute", let index = self.calls.firstIndex(where: { $0.id == call.id }) { self.calls[index].muted.toggle() }
             self.note("\(command.capitalized) requested")
             onSuccess?()
@@ -268,6 +319,11 @@ import AVFoundation
             return
         }
         guard let id = object["id"] as? String else { return }
+        if type == "END_OF_FILE" {
+            if let index = calls.firstIndex(where: { $0.id == id }) { calls[index].audioInput = "Audio file finished" }
+            note("Audio file finished; call remains connected · Call-ID: \(id)")
+            return
+        }
         if type == "CALL_CLOSED" {
             calls.removeAll { $0.id == id }
             if selectedCall == id { selectedCall = calls.first?.id }
@@ -294,6 +350,7 @@ import AVFoundation
             }
             else {
                 calls.append(SIPCall(id: id, account: aor, peer: object["peeruri"] as? String ?? "Unknown caller", state: state, incoming: object["direction"] as? String == "incoming"))
+                if type != "CALL_INCOMING", let index = calls.firstIndex(where: { $0.id == id }) { calls[index].audioInput = nextCallInput }
                 selectedCall = id
             }
             if type == "CALL_INCOMING" { NSApp.requestUserAttention(.criticalRequest) }

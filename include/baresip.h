@@ -1457,6 +1457,8 @@ void audio_mute(struct audio *a, bool muted);
 bool audio_ismuted(const struct audio *a);
 int  audio_set_devicename(struct audio *a, const char *src, const char *play);
 int  audio_set_source(struct audio *au, const char *mod, const char *device);
+int  audio_configure_source(struct audio *au, const char *mod,
+                            const char *device);
 int  audio_set_player(struct audio *au, const char *mod, const char *device);
 void audio_level_put(const struct audio *au, bool tx, double lvl);
 int  audio_level_get(const struct audio *au, double *level);

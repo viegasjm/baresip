@@ -67,6 +67,8 @@ class Peer:
         self.codec = SilentCodec(codec) if audio else None
         self.rtp = None
         self.rtp_received = 0
+        self.rtp_non_silent = 0
+        self.rtp_by_port = {}
         self.rtp_sent = 0
         self.media_targets = {}
         if audio:
@@ -87,6 +89,8 @@ class Peer:
                 data, address = self.rtp.recvfrom(65535)
                 if len(data) >= 12 and data[0] >> 6 == 2:
                     self.rtp_received += 1
+                    self.rtp_by_port[address[1]] = self.rtp_by_port.get(address[1], 0) + 1
+                    if self.codec.name == "PCMA" and any(value not in [0xD5, 0x55] for value in data[12:]): self.rtp_non_silent += 1
             except socket.timeout: pass
             except OSError: break
             # Microphone payload is discarded; independent silence tests receive-only calls too.

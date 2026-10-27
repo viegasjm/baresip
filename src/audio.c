@@ -1794,6 +1794,35 @@ int audio_set_source(struct audio *au, const char *mod, const char *device)
 }
 
 
+/** Configure a source for the next media update without starting capture.
+ * Stops only this call's transmitter; the receiver remains available.
+ */
+int audio_configure_source(struct audio *au, const char *mod, const char *device)
+{
+	char *module = NULL, *dev = NULL;
+	int err;
+
+	if (!au || !ausrc_find(baresip_ausrcl(), mod))
+		return EINVAL;
+
+	err  = str_dup(&module, mod);
+	err |= str_dup(&dev, device);
+	if (err) {
+		mem_deref(module);
+		mem_deref(dev);
+		return err;
+	}
+
+	stop_tx(&au->tx, au);
+	mem_deref(au->tx.module);
+	mem_deref(au->tx.device);
+	au->tx.module = module;
+	au->tx.device = dev;
+	au->tx.as = ausrc_find(baresip_ausrcl(), mod);
+	return 0;
+}
+
+
 /**
  * Set the audio player state to a new audio player module and device.
  * The current audio player will be stopped.

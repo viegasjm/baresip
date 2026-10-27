@@ -1,7 +1,9 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AudioSettingsView: View {
     @EnvironmentObject var store: Store
+    @State private var showFilePicker = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -14,6 +16,21 @@ struct AudioSettingsView: View {
                     Button { store.refreshAudioDevices() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                 }
                 GroupBox {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker("Send audio from", selection: $store.inputMode) {
+                            ForEach(CallInputMode.allCases) { mode in Text(mode.title).tag(mode) }
+                        }.disabled(store.busy || !store.calls.isEmpty)
+                        Text("Without a microphone or microphone permission, automatic mode still connects the call so you can listen.").font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Text(store.audioFile?.name ?? "No audio file selected").lineLimit(1)
+                            Spacer()
+                            Button("Choose audio file…") { showFilePicker = true }.disabled(store.busy || !store.calls.isEmpty)
+                            if store.audioFile != nil { Button("Clear") { store.clearAudioFile() }.disabled(store.busy || !store.calls.isEmpty) }
+                        }
+                        Text("WAV, MP3, M4A and other formats macOS can decode, up to 10 minutes. Files are converted locally and kept for this app session. Choose a file here to send it when the call connects, or use Play audio file during a call.").font(.caption).foregroundStyle(.secondary)
+                    }.padding(16)
+                } label: { Label("Call input", systemImage: "waveform") }
+                GroupBox {
                     VStack(alignment: .leading, spacing: 16) {
                         Picker("Microphone", selection: $store.inputDeviceUID) {
                             Text("System default — \(store.audioDevices.resolve("default", input: true)?.name ?? "No microphone")").tag("default")
@@ -25,7 +42,7 @@ struct AudioSettingsView: View {
                         if let device = store.audioDevices.resolve(store.inputDeviceUID, input: true) {
                             deviceDetails(device, channels: device.inputChannels)
                         } else {
-                            Label(store.audioDevices.inputs.isEmpty ? "No microphone detected. Connect a headset or microphone, then Refresh." : "Choose an available microphone.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            Label(store.audioDevices.inputs.isEmpty ? "No microphone detected. Calls will use listen-only mode unless you choose an audio file." : "Choose an available microphone.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
                 } label: { Label("Input", systemImage: "mic") }
@@ -46,6 +63,12 @@ struct AudioSettingsView: View {
                 Toggle("Use mono device audio", isOn: $store.monoDeviceAudio).disabled(store.busy || !store.calls.isEmpty)
                 Text("Device choices are saved on this Mac. Changing a device reconnects idle accounts. Finish active calls before changing devices. Mono mode applies after reconnecting.").font(.caption).foregroundStyle(.secondary)
             }.padding(28)
+        }
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.audio]) { result in
+            switch result {
+            case .success(let url): store.importAudioFile(url)
+            case .failure(let error): store.error = error.localizedDescription
+            }
         }
         .onAppear { store.refreshAudioDevices() }
         .onChange(of: store.inputDeviceUID) { _, _ in store.audioDeviceChanged() }

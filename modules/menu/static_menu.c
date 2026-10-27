@@ -359,6 +359,30 @@ static int switch_audio_player(struct re_printf *pf, void *arg)
 }
 
 
+/* Change defaults for future calls without touching existing calls. */
+static int default_audio_source(struct re_printf *pf, void *arg)
+{
+	const struct cmd_arg *carg = arg;
+	struct pl driver, device;
+	struct config *cfg = conf_config();
+	char module[16];
+	(void)pf;
+
+	if (!cfg || re_regex(carg->prm, str_len(carg->prm),
+			     "[^,]+,[~]*", &driver, &device))
+		return EINVAL;
+	if (driver.l >= sizeof(cfg->audio.src_mod) ||
+	    device.l >= sizeof(cfg->audio.src_dev))
+		return EINVAL;
+	pl_strcpy(&driver, module, sizeof(module));
+	if (!ausrc_find(baresip_ausrcl(), module))
+		return ENOENT;
+	pl_strcpy(&driver, cfg->audio.src_mod, sizeof(cfg->audio.src_mod));
+	pl_strcpy(&device, cfg->audio.src_dev, sizeof(cfg->audio.src_dev));
+	return 0;
+}
+
+
 static int switch_audio_source(struct re_printf *pf, void *arg)
 {
 	const struct cmd_arg *carg = arg;
@@ -1492,6 +1516,7 @@ static const struct cmd cmdv[] = {
                              "direction.",              cmd_answerdir        },
 {"answermode",0,    CMD_PRM, "Set answer mode",         cmd_set_answermode   },
 {"auplay",    0,    CMD_PRM, "Switch audio player",     switch_audio_player  },
+{"ausrcdefault", 0, CMD_PRM, "Source for future calls", default_audio_source },
 {"ausrc",     0,    CMD_PRM, "Switch audio source",     switch_audio_source  },
 {"callstat",  'c',        0, "Call status",             ua_print_call_status },
 {"dial",      'd',  CMD_PRM, "Dial",                    dial_handler         },

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Opt-in real CoreAudio test. Only silent RTP is returned; no audio is saved."""
-import os, pathlib, socket, subprocess, tempfile, time
+import os, pathlib, socket, struct, subprocess, tempfile, time, wave
 RECEIVE_ONLY = os.environ.get("BARESIP_AUDIO_RECEIVE_ONLY") == "1"
+FILE_TEST = os.environ.get("BARESIP_AUDIO_FILE_TEST") == "1"
 OUTPUT_UID = os.environ.get("BARESIP_AUDIO_OUTPUT_UID", "default")
 import sip_integration as sip
 
@@ -25,7 +26,9 @@ audio_alert coreaudio,{OUTPUT_UID}
 ausrc_channels 1
 auplay_channels 1
 call_max_calls 4
+call_hold_other_calls no
 module coreaudio
+module aufile
 module g711
 module g722
 module opus
@@ -37,6 +40,10 @@ module_app account
 ctrl_tcp_trace yes
 ctrl_tcp_listen 127.0.0.1:{port}
 ''')
+        file_path = folder / 'input.wav'
+        with wave.open(str(file_path), 'wb') as wav:
+            wav.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+            wav.writeframes(b''.join(struct.pack('<h', 512 if i % 40 < 20 else -512) for i in range(9600)))
         aor = f'sip:audio-test@127.0.0.1:{peer.port}'
         folder.joinpath('accounts').write_text(f'<{aor};transport=udp>;regint=0;audio_codecs={peer.codec.account}\n')
         with sip.LOG_PATH.open('w') as output:
@@ -63,29 +70,72 @@ ctrl_tcp_listen 127.0.0.1:{port}
             control.command('resume')
             before = peer.rtp_sent if RECEIVE_ONLY else peer.rtp_received
             sip.wait_for(lambda: (peer.rtp_sent if RECEIVE_ONLY else peer.rtp_received) >= before + 15, 'RTP did not resume', timeout=5)
+            if FILE_TEST:
+                control.command('callsource', 'aufile,' + str(file_path))
+                sip.wait_for(lambda: peer.rtp_received >= 10, 'File RTP missing')
+                control.event('END_OF_FILE', outgoing)
+                assert outgoing in control.command('callstat'), 'EOF ended the call'
+                control.command('callsource', 'none')
+                time.sleep(.2)
+                count = peer.rtp_received
+                time.sleep(.2)
+                assert peer.rtp_received <= count + 1, 'Listen only must stop file RTP'
+                assert 'a=recvonly' in peer.requests('INVITE')[-1]
+                print(f'PASS: live {CODEC} file injection; EOF preserves call; Listen only stops transmission')
+                control.command('dialdir', f'sip:isolated@127.0.0.1:{peer.port} audio=recvonly video=inactive')
+                other = control.event('CALL_ESTABLISHED')['id']
+                other_invite = next(x for x in peer.requests('INVITE') if 'Call-ID: ' + other in x)
+                other_port = int(sip.re.search(r'm=audio (\d+)', other_invite)[1])
+                control.command('callfind', outgoing)
+                control.command('callsource', 'aufile,' + str(file_path))
+                control.event('END_OF_FILE', outgoing)
+                assert peer.rtp_by_port.get(other_port, 0) == 0, 'File leaked into another call'
+                control.command('callfind', other)
+                assert other in control.command('callstat')
+                control.command('hangup', other)
+                control.event('CALL_CLOSED', other)
+                control.command('callfind', outgoing)
+                print(f'PASS: {CODEC} file input stays isolated to the selected call with two active calls')
             control.command('hangup', outgoing)
             control.event('CALL_CLOSED', outgoing)
-            if RECEIVE_ONLY:
+            if RECEIVE_ONLY and not FILE_TEST:
                 assert peer.rtp_received == 0, 'Receive-only test must not use the microphone'
                 assert 'audio_recv: player started' in sip.LOG_PATH.read_text()
                 print(f'PASS: selected real CoreAudio speaker {OUTPUT_UID}; {CODEC} receive-only call; {peer.rtp_sent} silent RTP packets; hold/resume; zero microphone packets')
-            else: print(f'PASS: outgoing real CoreAudio call; bidirectional RTP; hold/resume; {peer.rtp_received} microphone packets discarded')
+            elif not FILE_TEST: print(f'PASS: outgoing real CoreAudio call; bidirectional RTP; hold/resume; {peer.rtp_received} microphone packets discarded')
             contact = next(iter(peer.registrations.values()))
             incoming = peer.incoming(contact, aor)
             control.event('CALL_INCOMING', incoming)
-            control.command('acceptdir' if RECEIVE_ONLY else 'accept', f'audio=recvonly video=inactive callid={incoming}' if RECEIVE_ONLY else incoming)
+            if FILE_TEST:
+                control.command('callfind', incoming)
+                control.command('callsource', 'aufile,' + str(file_path))
+            control.command('acceptdir' if RECEIVE_ONLY and not FILE_TEST else 'accept', f'audio=recvonly video=inactive callid={incoming}' if RECEIVE_ONLY and not FILE_TEST else incoming)
             control.event('CALL_ESTABLISHED', incoming)
             before = peer.rtp_sent if RECEIVE_ONLY else peer.rtp_received
             sip.wait_for(lambda: (peer.rtp_sent if RECEIVE_ONLY else peer.rtp_received) >= before + 15, 'Incoming call RTP missing', timeout=5)
             control.event('CALL_RTPESTAB', incoming)
+            if FILE_TEST:
+                control.event('END_OF_FILE', incoming)
+                assert incoming in control.command('callstat')
             control.command('hangup', incoming)
             control.event('CALL_CLOSED', incoming)
-            if RECEIVE_ONLY: assert peer.rtp_received == 0, 'Incoming receive-only call opened the microphone'
-            print(f'PASS: incoming {CODEC} call answered with real CoreAudio; RTP received' + ('; zero microphone packets' if RECEIVE_ONLY else '; microphone packets discarded'))
+            if RECEIVE_ONLY and not FILE_TEST: assert peer.rtp_received == 0, 'Incoming receive-only call opened the microphone'
+            print(f'PASS: incoming {CODEC} call answered with real CoreAudio' + (' and file input; EOF preserves call' if FILE_TEST else '; RTP received'))
+            if FILE_TEST:
+                control.command('ausrcdefault', 'aufile,' + str(file_path))
+                control.command('dial', f'sip:file-start@127.0.0.1:{peer.port}')
+                started = control.event('CALL_ESTABLISHED')['id']
+                control.event('END_OF_FILE', started)
+                assert started in control.command('callstat')
+                control.command('hangup', started)
+                control.event('CALL_CLOSED', started)
+                if CODEC == 'PCMA': assert peer.rtp_non_silent >= 5
+                print(f'PASS: {CODEC} file selected before outgoing call; remote RTP; EOF preserves call')
             log = sip.LOG_PATH.read_text()
             assert 'audio_recv: player started' in log
             assert f'audio_recv: Set audio decoder: {CODEC}' in log, log
             if OUTPUT_UID != 'default': assert f"player: using device '{OUTPUT_UID}'" in log, log
+            if RECEIVE_ONLY: assert 'opening microphone' not in log.lower(), log
             assert 'failed' not in log.lower(), log
 except Exception:
     if process and sip.LOG_PATH.exists():

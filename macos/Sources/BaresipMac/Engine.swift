@@ -3,6 +3,8 @@ import Network
 import Darwin
 
 @MainActor final class Engine {
+    private let loopbackOnly: Bool
+    init(loopbackOnly: Bool = false) { self.loopbackOnly = loopbackOnly }
     var onEvent: (([String: Any]) -> Void)?
     var onOutput: ((String) -> Void)?
     private var outputLines = EngineOutputLines()
@@ -32,6 +34,7 @@ import Darwin
         let accountText = try accounts.map { try $0.configuration(startRegistration: false) }.joined(separator: "\n") + "\n"
         let port = try Self.freePort()
         let config = """
+        \(loopbackOnly ? "net_interface 127.0.0.1" : "")
         sip_listen 0.0.0.0:0
         sip_transports udp,tcp,tls
         sip_verify_server yes
@@ -50,6 +53,7 @@ import Darwin
         module g722
         module opus
         module coreaudio
+        module aufile
         module auconv
         module auresamp
         module stun
