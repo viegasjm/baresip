@@ -9,6 +9,19 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Password storage in macOS Keychain; account preferences stored separately.
 
+## Version 0.1.6 hold/resume state
+
+The Hold button now changes to Resume after a local hold, and back to Hold
+when resumed. Local hold state comes from the engine's `local_hold` field on
+call events and successful local commands, including calls automatically held
+when another call starts or resumes. Hold/resume commands target the selected
+Call-ID explicitly. Remote hold events are tracked separately and displayed as
+Held by remote party; they do not toggle your local Hold/Resume action.
+
+The app-state regression checks repeated button-state changes, real SDP
+transitions, and holding/resuming between two simultaneous calls. The audio
+fixture checks that Hold stops outgoing file RTP and Resume restores it.
+
 ## Version 0.1.5 calls without a microphone and file input
 
 A missing microphone, unavailable selected input, or denied microphone permission
@@ -21,8 +34,8 @@ The Audio tab offers Microphone when available, Listen only, and Audio file.
 Choose a file there to send it when the next call connects. During an active
 call, use **Play audio file…** to send a file to that call, or **Listen only** to
 stop sending. Other calls are unaffected. Files play once; end-of-file leaves
-the call connected. Restarting a source, including hold/resume, restarts the
-file from the beginning.
+the call connected. A file follows its playback timeline, including while held. Reopening its
+source restarts it from the beginning; use Play audio file again to replay it.
 
 Audio macOS can decode is converted locally to a canonical 16 kHz, mono,
 16-bit PCM WAV for Baresip. WAV, AIFF and M4A conversion were tested. Files must

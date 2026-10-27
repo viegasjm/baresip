@@ -1,11 +1,13 @@
-# Validation — 2026-10-27, version 0.1.5
+# Validation — 2026-10-27, version 0.1.6
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
 | Release app build, bundled libraries, local signature | Pass | Native arm64 app compiles and bundle signature verifies |
-| Swift protocol/credential/state/debug/device routing checks | 10 passed | Framing, redaction, credential encoding, readiness and routing validation |
+| Swift protocol/credential/state/debug/device routing checks | 11 passed | Framing, redaction, credential encoding, readiness and routing validation |
 | Two simultaneous local digest registrations | Pass | Accounts authenticate independently using delimiter-rich passwords |
 | SIP Call-ID and first INVITE capture | Pass | Structured trace IDs match the actual SIP call events |
+| Local/remote hold state and selected-call controls | Pass | Repeated local Hold/Resume button states, authoritative engine flags, actual SDP directions, automatic hold and selected-call resume across two simultaneous app calls |
+| Audio during hold/resume | Pass | Outgoing file RTP stops during Hold and resumes after Resume for PCMA, PCMU, G722 and Opus |
 | Codec order, headers, hold/resume, transfers | Pass | Local SDP and SIP signaling; REFER/Replaces generation |
 | Raw engine input without a microphone (earlier reproduction) | Reproduced failure | Input AudioQueueStart returns -66680 / InvalidDevice, mapped to error 19 |
 | Audio inventory on development host | 0 inputs, 1 output | No microphone is exposed by macOS; built-in speaker is present |

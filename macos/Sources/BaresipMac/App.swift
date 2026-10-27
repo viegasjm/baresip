@@ -67,7 +67,7 @@ struct MainView: View {
                         ForEach(store.calls) { call in
                             VStack(alignment: .leading, spacing: 4) {
                                 Label(call.peer.replacingOccurrences(of: "sip:", with: ""), systemImage: call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right").lineLimit(1)
-                                Text(call.held ? "On hold" : call.state).font(.caption).foregroundStyle(.secondary)
+                                Text(call.statusTitle).font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 5).tag(call.id)
                         }
                     }.listStyle(.sidebar).frame(maxHeight: 240)
@@ -202,7 +202,7 @@ struct MainView: View {
                     Image(systemName: call.held ? "pause.circle.fill" : "phone.circle.fill").font(.system(size: 42)).foregroundStyle(.teal)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(call.peer.replacingOccurrences(of: "sip:", with: "")).font(.title2.weight(.medium)).textSelection(.enabled)
-                        Text("\(call.held ? "On hold" : call.state) · \(call.account.replacingOccurrences(of: "sip:", with: ""))").font(.caption).foregroundStyle(.secondary)
+                        Text("\(call.statusTitle) · \(call.account.replacingOccurrences(of: "sip:", with: ""))").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if call.connected { Text(call.started, style: .timer).font(.title3.monospacedDigit()) }

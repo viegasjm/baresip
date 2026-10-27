@@ -19,8 +19,24 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         suite.testFirstInviteAndAuthenticationRedaction()
         suite.testDebugHistoryAndRetention()
         suite.testFragmentedEngineOutput()
+        suite.testLocalAndRemoteHoldState()
         try suite.testAudioDeviceRouting()
-        print("PASS: 10 protocol, credential, connection-state, debug and device-routing tests")
+        print("PASS: 11 protocol, credential, connection-state, debug and device-routing tests")
+    }
+    func testLocalAndRemoteHoldState() {
+        var call = SIPCall(id: "a", account: "alice", peer: "bob", state: "Connected", incoming: false)
+        call.updateHoldState(["type": "CALL_LOCAL_SDP", "local_hold": true])
+        XCTAssertTrue(call.held)
+        XCTAssertEqual(call.statusTitle, "On hold")
+        call.updateHoldState(["type": "CALL_RESUME", "local_hold": true])
+        XCTAssertTrue(call.held)
+        call.updateHoldState(["type": "CALL_HOLD", "local_hold": false])
+        XCTAssertFalse(call.held)
+        XCTAssertTrue(call.remoteHeld)
+        XCTAssertEqual(call.statusTitle, "Held by remote party")
+        call.updateHoldState(["type": "CALL_RESUME", "local_hold": false])
+        XCTAssertFalse(call.remoteHeld)
+        XCTAssertEqual(call.statusTitle, "Connected")
     }
     func testAudioDeviceRouting() throws {
         let micA = AudioDeviceInfo(uid: "mic-a", name: "Headset", inputChannels: 1, outputChannels: 0, sampleRate: 48000)

@@ -43,7 +43,7 @@ ctrl_tcp_listen 127.0.0.1:{port}
         file_path = folder / 'input.wav'
         with wave.open(str(file_path), 'wb') as wav:
             wav.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
-            wav.writeframes(b''.join(struct.pack('<h', 512 if i % 40 < 20 else -512) for i in range(9600)))
+            wav.writeframes(b''.join(struct.pack('<h', 512 if i % 40 < 20 else -512) for i in range(32000)))
         aor = f'sip:audio-test@127.0.0.1:{peer.port}'
         folder.joinpath('accounts').write_text(f'<{aor};transport=udp>;regint=0;audio_codecs={peer.codec.account}\n')
         with sip.LOG_PATH.open('w') as output:
@@ -73,6 +73,14 @@ ctrl_tcp_listen 127.0.0.1:{port}
             if FILE_TEST:
                 control.command('callsource', 'aufile,' + str(file_path))
                 sip.wait_for(lambda: peer.rtp_received >= 10, 'File RTP missing')
+                control.command('hold', outgoing)
+                time.sleep(.12)
+                paused_count = peer.rtp_received
+                time.sleep(.18)
+                assert peer.rtp_received <= paused_count + 1, 'Hold leaked outgoing file RTP'
+                control.command('resume', outgoing)
+                sip.wait_for(lambda: peer.rtp_received >= paused_count + 5, 'Resume did not restore outgoing file RTP')
+                print(f'PASS: {CODEC} Hold stops outgoing RTP; Resume restores it')
                 control.event('END_OF_FILE', outgoing)
                 assert outgoing in control.command('callstat'), 'EOF ended the call'
                 control.command('callsource', 'none')

@@ -59,6 +59,20 @@ import AVFoundation
             try await waitFor("listen-only call established") { store.call?.connected == true }
             try require(store.error == nil && store.connected && !store.busy, store.error ?? "Call failed")
             try require(store.call?.audioInput.contains("Listen only") == true)
+            // Verify the same state that controls the Hold / Resume button.
+            for _ in 0..<2 {
+                store.control("hold")
+                try await idle(store)
+                try require(store.error == nil && store.call?.held == true, store.error ?? "Hold button did not become Resume")
+                try await waitFor("hold SDP answer") {
+                    store.diagnostics.entries.contains { $0.summary.contains("CALL_REMOTE_SDP") && $0.callID == store.call?.id && ($0.detail.contains("local_hold: true") || $0.detail.contains("local_hold: 1")) }
+                }
+                try await Task.sleep(nanoseconds: 150_000_000)
+                store.control("resume")
+                try await idle(store)
+                try require(store.error == nil && store.call?.held == false, store.error ?? "Resume button did not become Hold")
+                try await Task.sleep(nanoseconds: 150_000_000)
+            }
             if attempt == 0 {
                 let source = FileManager.default.temporaryDirectory.appendingPathComponent("synthetic-input-\(UUID().uuidString).wav")
                 defer { try? FileManager.default.removeItem(at: source) }
@@ -73,6 +87,26 @@ import AVFoundation
                 try require(store.error == nil, store.error ?? "Listen-only transition failed")
                 try await Task.sleep(nanoseconds: 200_000_000)
             }
+            if attempt == 2 {
+                let firstID = store.call!.id
+                store.dial()
+                try await idle(store)
+                try await waitFor("second call established and first auto-held") {
+                    store.calls.count == 2 && store.call?.id != firstID && store.call?.connected == true && store.calls.first { $0.id == firstID }?.held == true
+                }
+                let secondID = store.call!.id
+                store.selectedCall = firstID
+                store.control("resume")
+                try await idle(store)
+                try await waitFor("selected call resumed and other call auto-held") {
+                    store.calls.first { $0.id == firstID }?.held == false && store.calls.first { $0.id == secondID }?.held == true
+                }
+                store.selectedCall = secondID
+                store.control("hangup")
+                try await idle(store)
+                try await waitFor("second call closed") { store.calls.count == 1 }
+                store.selectedCall = firstID
+            }
             store.control("hangup")
             try await idle(store)
             try await waitFor("call closed") { store.calls.isEmpty }
@@ -86,7 +120,7 @@ import AVFoundation
         try await idle(store)
         try require(store.connected && store.error == nil)
         store.disconnect()
-        print("PASS: app places three listen-only calls without a microphone, converts and sends a file during a call, survives EOF, stops sending, retains diagnostics and reconnects")
+        print("PASS: app places listen-only calls without a microphone, converts and sends a file during a call, survives EOF, stops sending, toggles Hold/Resume repeatedly and synchronizes auto-hold across two calls, retains diagnostics and reconnects")
     }
     @MainActor static func waitFor(_ label: String, _ check: () -> Bool) async throws {
         for _ in 0..<800 {

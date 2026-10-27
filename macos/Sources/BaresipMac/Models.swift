@@ -61,10 +61,17 @@ struct SIPCall: Identifiable, Equatable {
     var state: String
     var incoming: Bool
     var held = false
+    var remoteHeld = false
     var audioInput = ""
     var muted = false
     var started = Date()
     var connected: Bool { state == "Connected" }
+    var statusTitle: String { held ? "On hold" : (remoteHeld ? "Held by remote party" : state) }
+    mutating func updateHoldState(_ event: [String: Any]) {
+        if let local = event["local_hold"] as? Bool { held = local }
+        if event["type"] as? String == "CALL_HOLD" { remoteHeld = true }
+        if event["type"] as? String == "CALL_RESUME" { remoteHeld = false }
+    }
 }
 enum AppError: LocalizedError {
     case message(String)

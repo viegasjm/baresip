@@ -232,7 +232,10 @@ import AVFoundation
                 _ = try await self.engine.command("acceptdir", "audio=\(input.direction) video=inactive callid=\(call.id)")
                 if let index = self.calls.firstIndex(where: { $0.id == call.id }) { self.calls[index].audioInput = input.title }
             } else {
-                _ = try await self.engine.command(command, command == "hangup" ? call.id : params)
+                _ = try await self.engine.command(command, ["hangup", "hold", "resume"].contains(command) ? call.id : params)
+            }
+            if ["hold", "resume"].contains(command), let index = self.calls.firstIndex(where: { $0.id == call.id }) {
+                self.calls[index].held = command == "hold"
             }
             if command == "mute", let index = self.calls.firstIndex(where: { $0.id == call.id }) { self.calls[index].muted.toggle() }
             self.note("\(command.capitalized) requested")
@@ -356,8 +359,7 @@ import AVFoundation
             if type == "CALL_INCOMING" { NSApp.requestUserAttention(.criticalRequest) }
         }
         if let index = calls.firstIndex(where: { $0.id == id }) {
-            if type == "CALL_HOLD" { calls[index].held = true }
-            if type == "CALL_RESUME" { calls[index].held = false }
+            calls[index].updateHoldState(object)
         }
         if type == "TRANSFER_FAILED" { error = "Call transfer failed: \(object["param"] as? String ?? "Unknown reason")"; attendedTransfer = false }
     }
