@@ -164,6 +164,7 @@ struct MainView: View {
                 }
             }.padding(28).frame(maxWidth: .infinity, minHeight: 620, alignment: .top).background(Color(nsColor: .windowBackgroundColor))
             }.tabItem { Label("Calls", systemImage: "phone") }.tag("calls")
+            AudioSettingsView().tabItem { Label("Audio", systemImage: "speaker.wave.2") }.tag("audio")
             DebugView().tabItem { Label("Debug", systemImage: "ant") }.tag("debug")
             }
         }

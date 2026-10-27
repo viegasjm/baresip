@@ -18,7 +18,8 @@ import Darwin
     private var output: Pipe?
     private var connecting: CheckedContinuation<Void, Error>?
 
-    func start(accounts: [SIPAccount], monoDeviceAudio: Bool = true) async throws {
+    func start(accounts: [SIPAccount], monoDeviceAudio: Bool = true, audioRouting: AudioRouting = AudioRouting()) async throws {
+        try audioRouting.validate()
         stop()
         generation = UUID()
         let fm = FileManager.default
@@ -35,9 +36,9 @@ import Darwin
         sip_transports udp,tcp,tls
         sip_verify_server yes
         sip_cafile \(resources.appendingPathComponent("Engine/ca-certificates.crt").path)
-        audio_player coreaudio,default
-        audio_source coreaudio,default
-        audio_alert coreaudio,default
+        audio_player coreaudio,\(audioRouting.outputUID)
+        audio_source coreaudio,\(audioRouting.inputUID)
+        audio_alert coreaudio,\(audioRouting.outputUID)
         audio_path \(resources.appendingPathComponent("Engine/sounds").path)
         ausrc_channels \(monoDeviceAudio ? 1 : 0)
         auplay_channels \(monoDeviceAudio ? 1 : 0)

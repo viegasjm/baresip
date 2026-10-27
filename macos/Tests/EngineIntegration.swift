@@ -3,6 +3,12 @@ import Foundation
     @MainActor static func main() async throws {
         let audio = AudioDiagnostics.snapshot()
         precondition(audio.contains("Microphone permission:") && audio.contains("Input:") && audio.contains("Output:"))
+        let catalog = AudioDiagnostics.catalog()
+        if catalog.inputs.isEmpty {
+            do { try AudioRouting().validateForCall(in: catalog); preconditionFailure("Missing microphone must be rejected") }
+            catch { precondition(error.localizedDescription.contains("microphone")) }
+        }
+        print("Audio inventory: \(catalog.inputs.count) inputs, \(catalog.outputs.count) outputs")
         let engine = Engine()
         defer { engine.stop() }
         let a = SIPAccount(username: "alice", domain: "127.0.0.1", transport: "UDP", register: false)

@@ -19,7 +19,23 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         suite.testFirstInviteAndAuthenticationRedaction()
         suite.testDebugHistoryAndRetention()
         suite.testFragmentedEngineOutput()
-        print("PASS: 9 protocol, credential, connection-state and debug tests")
+        try suite.testAudioDeviceRouting()
+        print("PASS: 10 protocol, credential, connection-state, debug and device-routing tests")
+    }
+    func testAudioDeviceRouting() throws {
+        let micA = AudioDeviceInfo(uid: "mic-a", name: "Headset", inputChannels: 1, outputChannels: 0, sampleRate: 48000)
+        let micB = AudioDeviceInfo(uid: "mic-b", name: "Headset", inputChannels: 2, outputChannels: 0, sampleRate: 48000)
+        let speaker = AudioDeviceInfo(uid: "speaker", name: "Speakers", inputChannels: 0, outputChannels: 2, sampleRate: 48000)
+        let catalog = AudioDeviceCatalog(devices: [micA, micB, speaker], defaultInputUID: "mic-a", defaultOutputUID: "speaker")
+        XCTAssertEqual(catalog.resolve("default", input: true)?.uid, "mic-a")
+        XCTAssertEqual(catalog.resolve("mic-b", input: true)?.uid, "mic-b")
+        try AudioRouting(inputUID: "mic-b", outputUID: "speaker").validateForCall(in: catalog)
+        let unplugged = AudioDeviceCatalog(devices: [micA, speaker], defaultInputUID: "mic-a", defaultOutputUID: "speaker")
+        XCTAssertThrowsError(try AudioRouting(inputUID: "mic-b", outputUID: "speaker").validateForCall(in: unplugged))
+        XCTAssertThrowsError(try AudioRouting(inputUID: "speaker", outputUID: "speaker").validateForCall(in: catalog))
+        XCTAssertThrowsError(try AudioRouting().validateForCall(in: AudioDeviceCatalog(devices: [speaker], defaultOutputUID: "speaker")))
+        XCTAssertThrowsError(try AudioRouting(inputUID: "device\nmodule injected").validate())
+        XCTAssertThrowsError(try AudioRouting(inputUID: String(repeating: "a", count: 128)).validate())
     }
     func testFirstInviteAndAuthenticationRedaction() {
         var journal = DebugJournal()

@@ -9,9 +9,25 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Password storage in macOS Keychain; account preferences stored separately.
 
+## Version 0.1.3 audio device selection
+
+The Audio tab provides independent microphone and speaker menus, system-default
+choices, device information and Refresh. Choices are saved as stable CoreAudio
+UIDs, so duplicate device names and renamed devices remain distinguishable.
+Changing a device reconnects idle accounts; controls are locked during calls.
+A missing or unplugged microphone is detected before asking for microphone
+permission or starting a call, with a clear message pointing to the Audio tab.
+
+Further testing reproduced error `[19]` as `AudioQueueStart -66680`
+(`kAudioQueueErr_InvalidDevice`) when the development host had no microphone.
+Incoming and outgoing receive-only calls using its explicitly selected built-in
+speaker passed for PCMA, PCMU, G722 and Opus, with actual CoreAudio playback,
+RTP reception, hold and resume. See [TESTING.md](TESTING.md)
+for the tested scope and remaining gaps.
+
 ## Version 0.1.2 diagnostics
 
-The detail pane has Calls and Debug tabs. Debug retains up to 50 calls and
+The detail pane has Calls, Audio and Debug tabs. Debug retains up to 50 calls and
 500 diagnostic entries, including completed calls. Select a call to copy its
 actual SIP Call-ID or inspect its first INVITE; use the SIP filter to inspect
 requests and responses, transport, endpoints and SDP. The Engine filter retains
@@ -65,8 +81,8 @@ and, for attended transfer, Replaces.
 
 Account details can be opened at any time. Saving edits restarts registration
 and is disabled during active calls or another operation.
-The current audio devices are the macOS system defaults. This first version
-does not expose device selection, STUN/TURN settings, recording, or video.
+Audio devices can be selected in the Audio tab. This version does not expose
+STUN/TURN settings, recording, or video.
 
 ## Build
 
@@ -107,7 +123,8 @@ macos/scripts/test.sh
 The Swift checks cover fragmented/coalesced control messages, Unicode byte
 lengths, invalid framing, header injection, account validation, codec order,
 password encoding, registration-based call availability, debug redaction,
-first-INVITE retention, device-error explanations and bounded log retention.
+first-INVITE retention, device-error explanations, bounded log retention and
+stable audio routing with missing/unplugged devices.
 The bundled-engine check exercises the native process and TCP bridge with two
 accounts. The local SIP fixture checks two simultaneous digest-authenticated registrations using passwords
 containing spaces, quotes, backslashes and delimiters,
@@ -118,8 +135,7 @@ never contact a provider or open a microphone.
 
 A live provider test is still required for provider-specific authentication, NAT traversal,
 two-way audio, incoming calls, microphone permissions and end-to-end transfers.
-Visual UI inspection also remains to be performed on a Mac with accessibility
-permission enabled. Tests of REFER generation do not prove that a PBX completes
+Visual UI inspection remains blocked by a desktop automation connection failure. Tests of REFER generation do not prove that a PBX completes
 a transfer successfully.
 
 ## Storage and security

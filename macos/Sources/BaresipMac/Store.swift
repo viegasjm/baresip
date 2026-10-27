@@ -7,6 +7,10 @@ import AVFoundation
     @Published var monoDeviceAudio = UserDefaults.standard.object(forKey: "monoDeviceAudio") as? Bool ?? true {
         didSet { UserDefaults.standard.set(monoDeviceAudio, forKey: "monoDeviceAudio") }
     }
+    @Published var audioDevices = AudioDiagnostics.catalog()
+    @Published var inputDeviceUID = UserDefaults.standard.string(forKey: "inputDeviceUID") ?? "default"
+    @Published var outputDeviceUID = UserDefaults.standard.string(forKey: "outputDeviceUID") ?? "default"
+    var audioRouting: AudioRouting { AudioRouting(inputUID: inputDeviceUID, outputUID: outputDeviceUID) }
     @Published var accounts: [SIPAccount] = []
     @Published var selectedAccount: UUID?
     @Published var calls: [SIPCall] = []
@@ -70,7 +74,7 @@ import AVFoundation
         run {
             self.connected = false; self.status = "Connecting…"; self.registrations = [:]; self.registrationErrors = [:]
             do {
-                try await self.engine.start(accounts: self.accounts, monoDeviceAudio: self.monoDeviceAudio)
+                try await self.engine.start(accounts: self.accounts, monoDeviceAudio: self.monoDeviceAudio, audioRouting: self.audioRouting)
                 self.appliedHeaders = [:]; self.connected = true; self.status = "SIP engine ready"
                 self.note("SIP engine connected")
                 await self.refreshRegistrations()
@@ -121,7 +125,16 @@ import AVFoundation
         try JSONEncoder().encode(accounts).write(to: storage, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storage.path)
     }
+    func refreshAudioDevices() { audioDevices = AudioDiagnostics.catalog() }
+    func audioDeviceChanged() {
+        guard calls.isEmpty, !busy else { return }
+        UserDefaults.standard.set(inputDeviceUID, forKey: "inputDeviceUID")
+        UserDefaults.standard.set(outputDeviceUID, forKey: "outputDeviceUID")
+        if connected { connect() }
+    }
     private func microphone() async throws {
+        refreshAudioDevices()
+        try audioRouting.validateForCall(in: audioDevices)
         let allowed = await AVCaptureDevice.requestAccess(for: .audio)
         guard allowed else { throw AppError.message("Allow Baresip Mac to use your microphone in System Settings → Privacy & Security → Microphone.") }
     }
@@ -214,7 +227,7 @@ import AVFoundation
     }
     func captureSnapshot() {
         run {
-            self.diagnostics.add(category: "Snapshot", summary: "macOS audio devices and permissions", detail: AudioDiagnostics.snapshot() + "\nNext connection mono device audio: \(self.monoDeviceAudio)")
+            self.diagnostics.add(category: "Snapshot", summary: "macOS audio devices and permissions", detail: AudioDiagnostics.snapshot() + "\nSelected input UID: \(self.inputDeviceUID)\nSelected output UID: \(self.outputDeviceUID)\nNext connection mono device audio: \(self.monoDeviceAudio)")
             guard self.connected else { return }
             for command in ["about", "reginfo", "callstat"] {
                 do {
