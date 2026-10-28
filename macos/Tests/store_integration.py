@@ -4,9 +4,14 @@ import os, subprocess, sys
 import sip_integration as sip
 peer = sip.Peer(audio=True)
 try:
-    env = dict(os.environ, BARESIP_TEST_SIP_PORT=str(peer.port))
+    env = dict(os.environ, BARESIP_TEST_SIP_PORT=str(peer.port), BARESIP_TEST_PASSWORD=sip.PASSWORD)
     result = subprocess.run([sys.argv[1]], env=env, timeout=60)
     assert result.returncode == 0, 'Native app-state fixture failed'
+    infos = peer.requests('INFO')
+    assert [sip.re.search(r'Signal=([^\r]+)', m)[1] for m in infos] == ['1', '2', '#'], 'Listen-only keypad must deliver selected-call SIP INFO digits'
+    assert 5 in peer.dtmf_events, 'File-input keypad did not send RTP telephone-event 5'
+    assert not peer.auth_failures, 'Independent registration digest failed'
+    print('PASS: remote peer received keypad digits via SIP INFO and RTP telephone-event')
     invites = peer.requests('INVITE')
     assert len({sip.re.search(r'Call-ID: ([^\r]+)', msg)[1] for msg in invites}) == 4
     assert 'a=recvonly' in invites[0], 'Missing microphone must negotiate listen-only'

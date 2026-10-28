@@ -7,7 +7,30 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Incoming/outgoing calls, multiple active calls, hold/resume and microphone mute.
 - Blind transfer and attended transfer (consult, complete, cancel).
 - Default account headers and additional call headers for outgoing INVITEs.
-- Password storage in macOS Keychain; account preferences stored separately.
+- Private local password files (no Keychain prompts); account preferences stored separately.
+
+## Version 0.1.8 registration controls and DTMF
+
+Each sidebar account has its own Connect, Retry or Disconnect button, available
+in Calls, Audio and Debug. Connecting one account leaves the others offline;
+retrying or disconnecting an account keeps the engine and other calls running.
+An account with an active call cannot be disconnected from the sidebar.
+
+In Debug, enable **REGISTER · selected account** to inspect that account's
+requests, authentication retries, responses and registration events, including
+the SIP Call-ID. Authentication headers stay redacted. A 401 challenge followed
+by an authenticated REGISTER and 200 OK is a successful registration exchange.
+
+During a connected call, open **Keypad** to send 0–9, * and # to the selected
+call. Automatic DTMF uses negotiated RTP telephone events while transmitting
+media, or SIP INFO when telephone events are unavailable or the call is
+listen-only. The receiving provider must support the selected transport.
+The keypad is disabled while the call is on hold.
+
+Passwords are saved in local files with user-only permissions, without Keychain
+encryption or prompts. Older Keychain entries are left untouched and are no
+longer read. Existing installations need to save their passwords in the new
+store once; the app never silently reads or migrates Keychain entries.
 
 ## Version 0.1.7 calls between accounts in one app
 
@@ -243,9 +266,11 @@ a transfer successfully.
 ## Storage and security
 
 Nonsecret account preferences: `~/Library/Application Support/BaresipMac/accounts.json`.
-Passwords: Keychain service `com.viegasjm.baresip-mac`.
+Passwords: `~/Library/Application Support/BaresipMac/credentials/<account UUID>`,
+unencrypted with mode 0600 inside a mode-0700 directory. There are no Keychain
+reads or prompts. Other processes running as the same user can read these files.
 The engine receives nonsecret account settings in a private temporary directory
-with mode 0600. Passwords are read from Keychain and supplied in memory through
+with mode 0600. Passwords are read from the private local store and supplied in memory through
 the local control channel before registration. The temporary account file is
 deleted after startup and the runtime directory is removed on shutdown. Engine
 output and SIP traces are redacted and retained in bounded memory, with no log

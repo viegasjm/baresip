@@ -1,9 +1,13 @@
-# Validation — 2026-10-27, version 0.1.7
+# Validation — 2026-10-28, version 0.1.8
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
 | Release app build, bundled libraries, local signature | Pass | Native arm64 app compiles and bundle signature verifies |
-| Swift protocol/credential/state/debug/device routing checks | 12 passed | Framing, redaction, credential encoding, readiness and routing validation |
+| Swift protocol/credential/state/debug/device routing checks | 14 passed | Framing, redaction, credential encoding, readiness and routing validation |
+| Per-account connection controls | Pass | Connecting A leaves B offline; B connects, unregisters and retries independently without restarting A's registration |
+| REGISTER account filtering and export | Pass | Responses and events stay associated with the selected account; other registrations and INVITEs are excluded; authentication is redacted |
+| Local password files | Pass | Round-trip and replacement preserve delimiters; directory mode 0700, file mode 0600; missing/deleted accounts return an empty password; tests use temporary files |
+| DTMF keypad through Store | Pass | Local peer receives 1, 2 and # via SIP INFO on a listen-only call, and RTP telephone-event 5 while sending file audio |
 | Two simultaneous local digest registrations | Pass | Accounts authenticate independently using delimiter-rich passwords |
 | SIP Call-ID and first INVITE capture | Pass | Structured trace IDs match the actual SIP call events |
 | Same-app A → B call | Pass | Both accounts register in one app process; distinct local legs survive shared and rewritten SIP Call-IDs; no mutual auto-hold; selected-leg hold/resume and hangup work |
@@ -26,6 +30,13 @@
 | Telnyx development file media and NAT | Pass | Preselected and live-injected six-second generated files: 300 transmit attempts each, zero send errors; B received 289 and 297 additional packets respectively; incoming payload fingerprints match the source file in memory |
 | Provider test cleanup | Pass | Original number route restored and temporary SIP connections deleted; no credentials or media recordings retained |
 | Completed remote PBX transfers | Not verified | Local REFER/Replaces generation does not prove remote PBX completion |
+
+Production registration diagnosis on 2026-10-28: the reported account completed
+TCP REGISTER → 401 challenge → authenticated REGISTER → 200 OK with its current
+provider credential. The diagnostic client then received 200 OK Deregistered.
+No failed historical exchange was available, so the original failure's cause
+was not established. This does not establish provider DTMF interoperability.
+Native visual inspection remains unavailable because desktop automation fails.
 
 ## Repeatable commands
 

@@ -24,7 +24,7 @@ import Darwin
     private var output: Pipe?
     private var connecting: CheckedContinuation<Void, Error>?
 
-    func start(accounts: [SIPAccount], monoDeviceAudio: Bool = true, audioRouting: AudioRouting = AudioRouting()) async throws {
+    func start(accounts: [SIPAccount], monoDeviceAudio: Bool = true, audioRouting: AudioRouting = AudioRouting(), registeringAccounts: Set<UUID>? = nil) async throws {
         try audioRouting.validate()
         stop()
         generation = UUID()
@@ -116,7 +116,7 @@ import Darwin
             stop(); throw AppError.message("Could not connect to the SIP engine.")
         }
         do {
-            for account in accounts {
+            for account in accounts where registeringAccounts == nil || registeringAccounts!.contains(account.id) {
                 let id = account.id
                 let password: String
                 if let supplied = passwordOverrides[id] { password = supplied }
@@ -132,6 +132,16 @@ import Darwin
         } catch {
             stop(); throw error
         }
+    }
+    func register(_ account: SIPAccount, enabled: Bool) async throws {
+        if enabled {
+            let password: String
+            if let supplied = passwordOverrides[account.id] { password = supplied }
+            else { password = try await Task.detached { try Passwords.load(account.id) }.value }
+            _ = try await command("uafind", account.aor)
+            _ = try await command("uapassword", "\(try Passwords.commandValue(password)) 0")
+        } else { _ = try await command("uafind", account.aor) }
+        _ = try await command("uareg", enabled && account.register ? "300 0" : "0 0")
     }
     private func writePrivate(_ text: String, to url: URL) throws {
         guard FileManager.default.createFile(atPath: url.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else { throw AppError.message("Could not write the private SIP configuration.") }

@@ -25,7 +25,35 @@ import AVFoundation
         }
         throw AppError.message("App operation did not finish")
     }
+    @MainActor static func verifyRegistrationControls(port: String) async throws {
+        let a = SIPAccount(username: "registration-a", domain: "127.0.0.1:\(port)", transport: "UDP")
+        let b = SIPAccount(username: "registration-b", domain: "127.0.0.1:\(port)", transport: "UDP")
+        let password = ProcessInfo.processInfo.environment["BARESIP_TEST_PASSWORD"]!
+        let engine = Engine(loopbackOnly: true, passwordOverrides: [a.id: password, b.id: password])
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent("registration-\(UUID().uuidString)/accounts.json")
+        let store = Store(storageURL: storage, engine: engine)
+        defer { store.disconnect() }
+        store.accounts = [a, b]; store.selectedAccount = a.id
+        store.registrationAction(a)
+        try await idle(store)
+        try await waitFor("only A registered") { store.connection(for: a).canDial }
+        try require(store.connection(for: b).phase == .offline, "Connecting A must leave B offline")
+        try require(store.diagnostics.registrationEntries(account: b.aor).isEmpty, "Offline account unexpectedly sent REGISTER")
+        store.registrationAction(b)
+        try await idle(store)
+        try await waitFor("B registered independently") { store.connection(for: b).canDial }
+        let aRequests = store.diagnostics.registrationEntries(account: a.aor).filter { $0.category == "SIP" && $0.summary.contains("SENT") }.count
+        store.registrationAction(b, disconnect: true)
+        try await idle(store)
+        try require(store.connection(for: a).canDial && store.connection(for: b).phase == .offline)
+        store.registrationAction(b)
+        try await idle(store)
+        try await waitFor("B re-registered") { store.connection(for: b).canDial }
+        try require(store.diagnostics.registrationEntries(account: a.aor).filter { $0.category == "SIP" && $0.summary.contains("SENT") }.count == aRequests, "Retrying B must not restart A")
+        print("PASS: independent account connect, unregister and retry with digest-auth REGISTER traces")
+    }
     @MainActor static func verify() async throws {
+        try await verifyRegistrationControls(port: ProcessInfo.processInfo.environment["BARESIP_TEST_SIP_PORT"]!)
         let audio = AudioDiagnostics.snapshot()
         try require(audio.contains("Microphone permission:") && audio.contains("Input:") && audio.contains("Output:"))
         let catalog = AudioDiagnostics.catalog()
@@ -84,12 +112,16 @@ import AVFoundation
                 try await Task.sleep(nanoseconds: 150_000_000)
             }
             if attempt == 0 {
+                for digit in ["1", "2", "#"] { store.sendDTMF(digit); try await idle(store) }
+                try await waitFor("DTMF INFO captured") { store.diagnostics.entries.filter { $0.summary.contains("INFO ") }.count >= 3 }
+
                 let source = FileManager.default.temporaryDirectory.appendingPathComponent("synthetic-input-\(UUID().uuidString).wav")
                 defer { try? FileManager.default.removeItem(at: source) }
-                try makeFile(source)
+                try makeFile(source, frames: 88200)
                 store.importAudioFile(source, callID: store.call!.id)
                 try await idle(store)
                 if let error = store.error { throw AppError.message("File preparation: \(error)") }
+                store.sendDTMF("5"); try await idle(store)
                 try await waitFor("file finished") { store.call?.audioInput == "Audio file finished" }
                 try require(store.call?.connected == true && store.connected)
                 store.stopSendingAudio()

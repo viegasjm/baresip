@@ -17,12 +17,42 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         suite.testConnectionStatusReflectsSelectedAccount()
         suite.testAccountCannotInjectConfiguration()
         suite.testFirstInviteAndAuthenticationRedaction()
+        try suite.testPrivatePasswordStorage()
+        suite.testRegistrationTraceIsolation()
         suite.testDebugHistoryAndRetention()
         suite.testFragmentedEngineOutput()
         suite.testDistinctLocalLegsAndPairing()
         suite.testLocalAndRemoteHoldState()
         try suite.testAudioDeviceRouting()
-        print("PASS: 12 protocol, credential, connection-state, debug and device-routing tests")
+        print("PASS: 14 protocol, credential, connection-state, debug and device-routing tests")
+    }
+    func testPrivatePasswordStorage() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("password-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let id = UUID(), other = UUID()
+        let value = "test; password\nwith delimiters"
+        try Passwords.save(value, for: id, directory: folder)
+        XCTAssertEqual(try Passwords.load(id, directory: folder), value)
+        XCTAssertEqual(try Passwords.load(other, directory: folder), "")
+        let fm = FileManager.default
+        XCTAssertEqual((try fm.attributesOfItem(atPath: folder.path)[.posixPermissions] as! NSNumber).intValue, 0o700)
+        XCTAssertEqual((try fm.attributesOfItem(atPath: folder.appendingPathComponent(id.uuidString).path)[.posixPermissions] as! NSNumber).intValue, 0o600)
+        try Passwords.save("replacement", for: id, directory: folder)
+        XCTAssertEqual(try Passwords.load(id, directory: folder), "replacement")
+        Passwords.delete(id, directory: folder)
+        XCTAssertEqual(try Passwords.load(id, directory: folder), "")
+    }
+    func testRegistrationTraceIsolation() {
+        var journal = DebugJournal()
+        for (name, status) in [("alice", "401 Unauthorized"), ("bob", "200 OK")] {
+            journal.packet(["message": "SIP/2.0 \(status)\r\nTo: <sip:\(name)@example.com>;tag=server\r\nCall-ID: reg-\(name)\r\nCSeq: 2 REGISTER\r\nAuthorization: secret\r\n\r\n", "direction": "received"])
+        }
+        journal.packet(["message": "INVITE sip:bob@example.com SIP/2.0\r\nTo: <sip:bob@example.com>\r\nCall-ID: call-bob\r\nCSeq: 1 INVITE\r\n\r\n"])
+        XCTAssertEqual(journal.registrationEntries(account: "sip:alice@example.com").count, 1)
+        XCTAssertEqual(journal.registrationEntries(account: "sip:bob@example.com").count, 1)
+        let exported = journal.export(registrationAccount: "sip:alice@example.com")
+        XCTAssertTrue(exported.contains("401 Unauthorized"))
+        XCTAssertFalse(exported.contains("reg-bob") || exported.contains("call-bob") || exported.contains("secret"))
     }
     func testDistinctLocalLegsAndPairing() {
         let a = SIPCall(id: "leg:1", account: "sip:alice@example.com", peer: "sip:bob@example.com;transport=tls", state: "Calling", incoming: false, sipCallID: "same-call")

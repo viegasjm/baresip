@@ -59,7 +59,7 @@ for source in seen.values():
                 label = '-'.join(file.relative_to(prefix).parts)
                 shutil.copy2(file, licences / (package + '-' + label))
 
-info = dict(CFBundleName='Baresip Mac', CFBundleDisplayName='Baresip Mac', CFBundleIdentifier='com.viegasjm.baresip-mac', CFBundleExecutable='BaresipMac', CFBundlePackageType='APPL', CFBundleShortVersionString='0.1.7', CFBundleVersion='8', LSMinimumSystemVersion='14.0', NSHighResolutionCapable=True, NSMicrophoneUsageDescription='Baresip Mac uses your microphone for SIP calls.', NSPrincipalClass='NSApplication')
+info = dict(CFBundleName='Baresip Mac', CFBundleDisplayName='Baresip Mac', CFBundleIdentifier='com.viegasjm.baresip-mac', CFBundleExecutable='BaresipMac', CFBundlePackageType='APPL', CFBundleShortVersionString='0.1.8', CFBundleVersion='9', LSMinimumSystemVersion='14.0', NSHighResolutionCapable=True, NSMicrophoneUsageDescription='Baresip Mac uses your microphone for SIP calls.', NSPrincipalClass='NSApplication')
 with (contents / 'Info.plist').open('wb') as file: plistlib.dump(info, file)
 for binary in [*libs.iterdir(), engine / 'baresip', macos / 'BaresipMac']:
     subprocess.run(['codesign', '--force', '--sign', '-', str(binary)], check=True, capture_output=True)

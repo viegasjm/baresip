@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 struct SIPHeader: Codable, Identifiable, Equatable {
     var id = UUID()
@@ -53,7 +52,7 @@ struct SIPAccount: Codable, Identifiable, Equatable {
     }
     func configuration(startRegistration: Bool = true) throws -> String {
         try validate()
-        var line = "<\(aor);transport=\(transport.lowercased())>;regint=\(register && startRegistration ? 300 : 0);natpinhole=yes;audio_codecs=\(codecs.filter(\.enabled).map(\.name).joined(separator: ","))"
+        var line = "<\(aor);transport=\(transport.lowercased())>;regint=\(register && startRegistration ? 300 : 0);natpinhole=yes;dtmfmode=auto;audio_codecs=\(codecs.filter(\.enabled).map(\.name).joined(separator: ","))"
         if !authUser.isEmpty { line += ";auth_user=\(authUser)" }
         if !proxy.isEmpty { line += ";outbound=\"sip:\(proxy);transport=\(transport.lowercased())\"" }
         if !assignedNumbers.isEmpty { line += ";inbound_numbers=\(assignedNumbers.joined(separator: ","))" }
@@ -129,16 +128,14 @@ struct Netstrings {
     }
 }
 enum Passwords {
-    static let service = "com.viegasjm.baresip-mac"
-    static func load(_ id: UUID) throws -> String {
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString, kSecReturnData as String: true]
-        var value: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &value)
-        if status == errSecItemNotFound { return "" }
-        guard status == errSecSuccess, let data = value as? Data else {
-            throw AppError.message("Could not read this account's password from Keychain (\(status)). Allow access or enter the password again.")
-        }
-        return String(decoding: data, as: UTF8.self)
+    static var directory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BaresipMac/credentials", isDirectory: true)
+    }
+    static func load(_ id: UUID, directory override: URL? = nil) throws -> String {
+        let file = (override ?? directory).appendingPathComponent(id.uuidString)
+        guard FileManager.default.fileExists(atPath: file.path) else { return "" }
+        return String(decoding: try Data(contentsOf: file), as: UTF8.self)
     }
     static func commandValue(_ password: String) throws -> String {
         let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
@@ -146,20 +143,17 @@ enum Passwords {
         guard encoded.utf8.count < 900 else { throw AppError.message("The encoded password exceeds the engine command size limit.") }
         return "value=" + encoded
     }
-    static func save(_ password: String, for id: UUID) throws {
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString]
-        let update = [kSecValueData as String: Data(password.utf8)]
-        let status = SecItemUpdate(q as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            var insert = q
-            insert[kSecValueData as String] = Data(password.utf8)
-            insert[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-            let added = SecItemAdd(insert as CFDictionary, nil)
-            guard added == errSecSuccess else { throw AppError.message("Could not save the password in Keychain (\(added)).") }
-        } else if status != errSecSuccess { throw AppError.message("Could not update Keychain (\(status)).") }
+    static func save(_ password: String, for id: UUID, directory override: URL? = nil) throws {
+        let folder = override ?? directory
+        let fm = FileManager.default
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        let file = folder.appendingPathComponent(id.uuidString)
+        try Data(password.utf8).write(to: file, options: .atomic)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
-    static func delete(_ id: UUID) {
-        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString] as CFDictionary)
+    static func delete(_ id: UUID, directory override: URL? = nil) {
+        try? FileManager.default.removeItem(at: (override ?? directory).appendingPathComponent(id.uuidString))
     }
 }
 

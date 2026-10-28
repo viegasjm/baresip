@@ -66,6 +66,7 @@ class Peer:
     def __init__(self, audio=False, codec="PCMA"):
         self.codec = SilentCodec(codec) if audio else None
         self.rtp = None
+        self.dtmf_events = set()
         self.rtp_received = 0
         self.rtp_non_silent = 0
         self.rtp_by_port = {}
@@ -88,6 +89,7 @@ class Peer:
             try:
                 data, address = self.rtp.recvfrom(65535)
                 if len(data) > 12 and data[0] >> 6 == 2:
+                    if data[1] & 0x7f == 101: self.dtmf_events.add(data[12]); continue
                     self.rtp_received += 1
                     self.rtp_by_port[address[1]] = self.rtp_by_port.get(address[1], 0) + 1
                     if self.codec.name == "PCMA" and any(value not in [0xD5, 0x55] for value in data[12:]): self.rtp_non_silent += 1
@@ -161,7 +163,7 @@ class Peer:
                         self.media_targets.pop(h['call-id'], None)
                     else: self.media_targets[h['call-id']] = ('127.0.0.1', int(m.split()[1]))
                 direction = 'sendonly' if 'a=recvonly' in offer else ('recvonly' if 'a=sendonly' in offer else ('inactive' if 'a=inactive' in offer else 'sendrecv'))
-                body = f'v=0\r\no=peer 1 1 IN IP4 127.0.0.1\r\ns=Test\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio {self.rtp.getsockname()[1] if self.rtp else 42000} RTP/AVP {payload}\r\n{mapping}\r\na={direction}\r\n'
+                body = f'v=0\r\no=peer 1 1 IN IP4 127.0.0.1\r\ns=Test\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio {self.rtp.getsockname()[1] if self.rtp else 42000} RTP/AVP {payload} 101\r\n{mapping}\r\na=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-15\r\na={direction}\r\n'
             to = h.get('to', '')
             if ';tag=' not in to: to += ';tag=fixture'
             response = f"SIP/2.0 {code}\r\nVia: {h['via']}\r\nFrom: {h['from']}\r\nTo: {to}\r\nCall-ID: {h['call-id']}\r\nCSeq: {h['cseq']}\r\nContact: <sip:peer@127.0.0.1:{self.port}>\r\n"

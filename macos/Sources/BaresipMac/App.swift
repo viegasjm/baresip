@@ -38,6 +38,7 @@ struct MainView: View {
     @State private var showAudioFilePicker = false
     @State private var audioFileCallID: String?
     @State private var workspaceTab = "calls"
+    @State private var showKeypad = false
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
@@ -54,6 +55,12 @@ struct MainView: View {
                             HStack(spacing: 5) {
                                 Circle().fill(registrationColor(account)).frame(width: 6, height: 6)
                                 Text(store.connection(for: account).title).font(.caption2).foregroundStyle(.secondary)
+                                Spacer()
+                                Button(store.connection(for: account).canDial ? "Disconnect" : (store.connection(for: account).phase == .failed ? "Retry" : "Connect")) {
+                                    store.registrationAction(account, disconnect: store.connection(for: account).canDial)
+                                }.buttonStyle(.borderless).font(.caption)
+                                    .disabled(store.busy || store.calls.contains { $0.account == account.aor })
+                                    .accessibilityLabel("\(store.connection(for: account).canDial ? "Disconnect" : "Connect or register") \(account.displayName)")
                             }
                         }.padding(.vertical, 7).tag(account.id)
                         .contextMenu { Button("Edit account") { editor = AccountEditorRequest(account: account) } }
@@ -91,9 +98,7 @@ struct MainView: View {
                     Spacer()
                     Circle().fill(connectionColor(store.accountConnection)).frame(width: 7, height: 7)
                     Text(store.accountConnection.title).font(.callout).foregroundStyle(store.accountConnection.phase == .failed ? Color.red : Color.secondary)
-                    Button(store.connected ? "Disconnect" : "Connect") {
-                        if store.connected { store.disconnect() } else { store.connect() }
-                    }.disabled(store.accounts.isEmpty || store.busy || !store.calls.isEmpty)
+
                 }
                 if store.accounts.isEmpty {
                     Spacer()
@@ -113,7 +118,7 @@ struct MainView: View {
                                 Text(store.registrationErrors[account.aor] ?? "Check the username, password, domain, and transport, then retry registration.").textSelection(.enabled)
                                 HStack {
                                     Button("Edit account") { editor = AccountEditorRequest(account: account) }.buttonStyle(.borderedProminent)
-                                    Button("Retry registration") { store.connect() }.disabled(store.busy || !store.calls.isEmpty)
+                                    Button("Retry registration") { store.registrationAction(account) }.disabled(store.busy)
                                 }
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
@@ -212,6 +217,7 @@ struct MainView: View {
                         Button { store.control("accept") } label: { Label("Answer", systemImage: "phone.fill") }.tint(.green).buttonStyle(.borderedProminent)
                     }
                     if call.connected {
+                        Button { showKeypad.toggle() } label: { Label("Keypad", systemImage: "circle.grid.3x3.fill") }
                         Button { store.control(call.held ? "resume" : "hold") } label: { Label(call.held ? "Resume" : "Hold", systemImage: call.held ? "play.fill" : "pause.fill") }
                         Button { store.control("mute", params: call.muted ? "off" : "on") } label: { Label(call.muted ? "Unmute" : "Mute", systemImage: call.muted ? "mic.slash.fill" : "mic.fill") }
                     }
@@ -219,6 +225,19 @@ struct MainView: View {
                     Button { store.control("hangup") } label: { Label(call.state == "Incoming" ? "Decline" : "End call", systemImage: "phone.down.fill") }.buttonStyle(.borderedProminent).tint(.red)
                 }.disabled(store.busy)
                 if call.connected {
+                    if showKeypad {
+                        VStack(spacing: 8) {
+                            Text("Send DTMF to this call").font(.caption).foregroundStyle(.secondary)
+                            ForEach(["123", "456", "789", "*0#"], id: \.self) { row in
+                                HStack(spacing: 10) {
+                                    ForEach(Array(row).map(String.init), id: \.self) { digit in
+                                        Button { store.sendDTMF(digit) } label: { Text(digit).font(.title2.monospacedDigit()).frame(width: 54, height: 30) }
+                                            .accessibilityLabel("Send DTMF \(digit)")
+                                    }
+                                }
+                            }
+                        }.frame(maxWidth: .infinity).disabled(store.busy || call.held)
+                    }
                     HStack {
                         Label(call.audioInput.isEmpty ? "Call audio" : call.audioInput, systemImage: "waveform").font(.caption).foregroundStyle(.secondary)
                         Spacer()
@@ -287,7 +306,7 @@ struct AccountEditor: View {
                     Text("Enter full numbers such as +12025550123 to recognize calls between your accounts.").font(.caption).foregroundStyle(.secondary)
                     Picker("Transport", selection: $account.transport) { Text("TLS").tag("TLS"); Text("TCP").tag("TCP"); Text("UDP").tag("UDP") }
                     Toggle("Register with the SIP server", isOn: $account.register)
-                    Text("Passwords are stored in macOS Keychain. Turn registration off for direct SIP calls.").font(.caption).foregroundStyle(.secondary)
+                    Text("Passwords are saved locally, readable only by your macOS user, without Keychain encryption or prompts. Turn registration off for direct SIP calls.").font(.caption).foregroundStyle(.secondary)
                 }.formStyle(.grouped).tabItem { Label("Connection", systemImage: "network") }
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Codecs are offered in this order. Enable the codecs you need and use the arrows to change their priority.").font(.callout).foregroundStyle(.secondary)
@@ -310,7 +329,7 @@ struct AccountEditor: View {
                     }.padding(20)
                 }.tabItem { Label("SIP headers", systemImage: "text.alignleft") }
             }
-            if passwordLoading { ProgressView("Loading password from Keychain…").controlSize(.small) }
+            if passwordLoading { ProgressView("Loading saved password…").controlSize(.small) }
             if !store.calls.isEmpty { Text("Finish your calls before saving changes.").font(.caption).foregroundStyle(.secondary) }
             HStack {
                 Spacer()

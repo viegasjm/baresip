@@ -1851,7 +1851,10 @@ int call_send_digit(struct call *call, char key)
 			fmt = sdp_media_rformat(
 				stream_sdpmedia(audio_strm(call->audio)),
 				telev_rtpfmt);
-			info = fmt == NULL;
+			/* Receive-only calls have no RTP transmit thread. */
+			info = fmt == NULL || !(sdp_media_dir(
+				stream_sdpmedia(audio_strm(call->audio))) &
+				SDP_SENDONLY);
 			break;
 		case DTMFMODE_RTP_EVENT:
 		default:

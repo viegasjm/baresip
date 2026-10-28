@@ -23,6 +23,7 @@ import AVFoundation
     @Published var registrationErrors: [String: String] = [:]
     @Published var destination = ""
     @Published var callHeaders: [SIPHeader] = []
+    @Published var activeAccounts: Set<UUID> = []
     @Published var connected = false
     @Published var busy = false
     @Published var status = "Ready to connect"
@@ -44,7 +45,7 @@ import AVFoundation
     }
     var account: SIPAccount? { accounts.first { $0.id == selectedAccount } }
     func connection(for account: SIPAccount?) -> AccountConnection {
-        AccountConnection(engineConnected: connected, starting: status == "Connecting…", account: account, registration: account.flatMap { registrations[$0.aor] })
+        AccountConnection(engineConnected: connected && account.map { activeAccounts.contains($0.id) } == true, starting: status == "Connecting…" && account.map { activeAccounts.contains($0.id) } == true, account: account, registration: account.flatMap { registrations[$0.aor] })
     }
     var accountConnection: AccountConnection { connection(for: account) }
     var call: SIPCall? { calls.first { $0.id == selectedCall } }
@@ -80,12 +81,13 @@ import AVFoundation
             do { try await operation() } catch { self.error = error.localizedDescription }
         }
     }
-    func connect() {
+    func connect(account target: SIPAccount? = nil) {
         guard calls.isEmpty, !accounts.isEmpty else { return }
         run {
+            self.activeAccounts = Set(target.map { [$0.id] } ?? self.accounts.map(\.id))
             self.connected = false; self.status = "Connecting…"; self.registrations = [:]; self.registrationErrors = [:]
             do {
-                try await self.engine.start(accounts: self.accounts, monoDeviceAudio: self.monoDeviceAudio, audioRouting: self.audioRouting)
+                try await self.engine.start(accounts: self.accounts, monoDeviceAudio: self.monoDeviceAudio, audioRouting: self.audioRouting, registeringAccounts: self.activeAccounts)
                 self.appliedHeaders = [:]; self.connected = true; self.status = "SIP engine ready"
                 self.note("SIP engine connected")
                 await self.refreshRegistrations()
@@ -100,10 +102,36 @@ import AVFoundation
             } catch { self.status = "Disconnected"; throw error }
         }
     }
+    func registrationAction(_ account: SIPAccount, disconnect: Bool = false) {
+        guard connected else { connect(account: account); return }
+        guard !calls.contains(where: { $0.account == account.aor }) || !disconnect else { return }
+        run {
+            if disconnect { self.activeAccounts.remove(account.id) }
+            else {
+                self.activeAccounts.insert(account.id)
+                self.registrations[account.aor] = "Registering…"
+                self.registrationErrors[account.aor] = nil
+            }
+            do {
+                try await self.engine.register(account, enabled: !disconnect)
+                if disconnect { self.registrations[account.aor] = "Offline" }
+                self.note("\(disconnect ? "Disconnected" : "Registration requested"): \(account.displayName)")
+            } catch {
+                self.registrations[account.aor] = "Registration failed"
+                self.registrationErrors[account.aor] = error.localizedDescription
+                throw error
+            }
+        }
+    }
+    func sendDTMF(_ digit: String) {
+        guard let call, call.connected, !call.held,
+              digit.count == 1, "0123456789*#".contains(digit) else { return }
+        control("sndcode", params: digit)
+    }
     func disconnect() {
         registrationTask?.cancel(); registrationTask = nil
         engine.stop(); connected = false; calls = []; attendedTransfer = false
-        registrations = [:]; registrationErrors = [:]; status = "Disconnected"
+        activeAccounts = []; registrations = [:]; registrationErrors = [:]; status = "Disconnected"
     }
     func save(_ account: SIPAccount, password: String) throws {
         guard calls.isEmpty else { throw AppError.message("Finish your calls before changing accounts.") }
@@ -279,7 +307,7 @@ import AVFoundation
         guard connected else { return }
         guard let text = try? await engine.command("reginfo") else { return }
         let clean = text.replacingOccurrences(of: "\u{001B}\\[[0-9;]*m", with: "", options: .regularExpression)
-        for account in accounts {
+        for account in accounts where activeAccounts.contains(account.id) {
             if !account.register { registrations[account.aor] = "Direct calls"; continue }
             guard let line = clean.components(separatedBy: .newlines).first(where: { $0.contains(account.aor) }) else { continue }
             if line.contains("OK") { registrations[account.aor] = "Registered"; registrationErrors[account.aor] = nil }
@@ -315,6 +343,7 @@ import AVFoundation
         if captureDiagnostics { diagnostics.event(object) }
         let type = object["type"] as? String ?? ""
         let aor = object["accountaor"] as? String ?? ""
+        if type.hasPrefix("REGISTER_"), !accounts.contains(where: { $0.aor == aor && activeAccounts.contains($0.id) }) { return }
         if type == "REGISTER_OK" { registrations[aor] = "Registered"; registrationErrors[aor] = nil; note("Account registered: \(aor)"); return }
         if type == "REGISTER_FAIL" {
             registrations[aor] = "Registration failed"

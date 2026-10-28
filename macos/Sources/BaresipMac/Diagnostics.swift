@@ -7,6 +7,8 @@ struct DebugEntry: Identifiable {
     let summary: String
     let detail: String
     let callID: String?
+    var account: String? = nil
+    var registration = false
 }
 struct CallDebug: Identifiable {
     let id: String
@@ -43,8 +45,8 @@ struct DebugJournal {
         guard reason.contains("[19]") else { return nil }
         return "The local audio device could not open or start. Check microphone permission and the Mac's selected microphone/speaker. The Engine log shows the AudioQueue operation and OSStatus when available."
     }
-    mutating func add(category: String, summary: String, detail: String, callID: String? = nil) {
-        entries.append(DebugEntry(category: category, summary: Self.redact(summary), detail: Self.redact(String(detail.prefix(65536))), callID: callID))
+    mutating func add(category: String, summary: String, detail: String, callID: String? = nil, account: String? = nil, registration: Bool = false) {
+        entries.append(DebugEntry(category: category, summary: Self.redact(summary), detail: Self.redact(String(detail.prefix(65536))), callID: callID, account: account, registration: registration))
         if entries.count > 500 { entries.removeFirst(entries.count - 500) }
     }
     private mutating func ensureCall(_ id: String) -> Int {
@@ -62,7 +64,10 @@ struct DebugJournal {
         let transport = event["transport"] as? String ?? ""
         let source = event["source"] as? String ?? ""
         let destination = event["destination"] as? String ?? ""
-        add(category: "SIP", summary: "\(direction.uppercased()) · \(transport) · \(firstLine)", detail: "\(source) → \(destination)\n\n\(message)", callID: id)
+        let registration = Self.header("CSeq", in: message)?.uppercased().hasSuffix(" REGISTER") == true
+        let to = Self.header("To", in: message) ?? Self.header("t", in: message) ?? ""
+        let account = to.range(of: "sips?:[^>; \t\r\n]+", options: .regularExpression).map { String(to[$0]) }
+        add(category: "SIP", summary: "\(direction.uppercased()) · \(transport) · \(firstLine)", detail: "\(source) → \(destination)\n\n\(message)", callID: id, account: registration ? account : nil, registration: registration)
         if firstLine.hasPrefix("INVITE "), let id {
             let index = ensureCall(id)
             if calls[index].firstInvite.isEmpty { calls[index].firstInvite = message }
@@ -73,7 +78,7 @@ struct DebugJournal {
         let id = event["id"] as? String
         let param = event["param"] as? String ?? ""
         let detail = event.keys.sorted().filter { $0 != "event" }.map { "\($0): \(event[$0]!)" }.joined(separator: "\n")
-        add(category: "Events", summary: type + (param.isEmpty ? "" : " · \(param)"), detail: detail, callID: id)
+        add(category: "Events", summary: type + (param.isEmpty ? "" : " · \(param)"), detail: detail, callID: id, account: event["accountaor"] as? String, registration: type.hasPrefix("REGISTER_"))
         guard let id, type.hasPrefix("CALL_") || type.contains("TRANSFER") else { return }
         let index = ensureCall(id)
         calls[index].account = event["accountaor"] as? String ?? calls[index].account
@@ -86,12 +91,15 @@ struct DebugJournal {
             }
         }
     }
-    func export(callID: String? = nil) -> String {
+    func registrationEntries(account: String?) -> [DebugEntry] {
+        entries.filter { $0.registration && (account == nil || $0.account.map(SIPCall.uriIdentity) == account.map(SIPCall.uriIdentity)) }
+    }
+    func export(callID: String? = nil, registrationAccount: String? = nil) -> String {
         var text = "Baresip Mac diagnostics\nExported: \(Date().ISO8601Format())\nAuthentication headers hidden. Addresses and custom headers remain visible.\n\n"
-        for call in calls where callID == nil || call.id == callID {
+        for call in calls where registrationAccount == nil && (callID == nil || call.id == callID) {
             text += "CALL-ID: \(call.id)\nAccount: \(call.account)\nPeer: \(call.peer)\nState: \(call.state)\nEnd reason: \(call.failure)\nFIRST INVITE:\n\(call.firstInvite)\n\n"
         }
-        for entry in entries where callID == nil || entry.callID == callID || entry.category == "Engine" || entry.category == "Snapshot" {
+        for entry in entries where registrationAccount != nil ? registrationEntries(account: registrationAccount).contains(where: { $0.id == entry.id }) : (callID == nil || entry.callID == callID || entry.category == "Engine" || entry.category == "Snapshot") {
             text += "[\(entry.timestamp.ISO8601Format())] \(entry.category) · \(entry.summary)\nCall-ID: \(entry.callID ?? "—")\n\(entry.detail)\n\n"
         }
         return Self.redact(text)
