@@ -9,6 +9,24 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.9 multiple-account loading fix
+
+Accounts with an explicit authentication username could stop account-file
+loading at the first entry. Baresip's account module prompted for a password on
+standard input, which is unavailable in the native app. The first account stayed
+loaded, so connecting another saved account failed locally with “could not find
+User-Agent” instead of sending REGISTER.
+
+The app sets `account_password_prompt no` and supplies passwords through its
+existing control connection. The account module keeps its usual terminal prompt
+by default for other clients. Startup now verifies that every configured account
+was loaded before marking the engine ready. Regression tests reproduce the old
+failure and verify independent digest registrations with explicit authentication
+usernames on both accounts.
+
+Snapshot captures current engine, registration, call and audio diagnostics; it
+does not capture the screen. The button now includes an explanatory tooltip.
+
 ## Version 0.1.8 registration controls and DTMF
 
 Each sidebar account has its own Connect, Retry or Disconnect button, available

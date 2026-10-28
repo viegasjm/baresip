@@ -26,8 +26,8 @@ import AVFoundation
         throw AppError.message("App operation did not finish")
     }
     @MainActor static func verifyRegistrationControls(port: String) async throws {
-        let a = SIPAccount(username: "registration-a", domain: "127.0.0.1:\(port)", transport: "UDP")
-        let b = SIPAccount(username: "registration-b", domain: "127.0.0.1:\(port)", transport: "UDP")
+        let a = SIPAccount(username: "registration-a", domain: "127.0.0.1:\(port)", authUser: "registration-a", transport: "UDP")
+        let b = SIPAccount(username: "registration-b", domain: "127.0.0.1:\(port)", authUser: "registration-b", transport: "UDP")
         let password = ProcessInfo.processInfo.environment["BARESIP_TEST_PASSWORD"]!
         let engine = Engine(loopbackOnly: true, passwordOverrides: [a.id: password, b.id: password])
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent("registration-\(UUID().uuidString)/accounts.json")
@@ -50,7 +50,7 @@ import AVFoundation
         try await idle(store)
         try await waitFor("B re-registered") { store.connection(for: b).canDial }
         try require(store.diagnostics.registrationEntries(account: a.aor).filter { $0.category == "SIP" && $0.summary.contains("SENT") }.count == aRequests, "Retrying B must not restart A")
-        print("PASS: independent account connect, unregister and retry with digest-auth REGISTER traces")
+        print("PASS: both explicit-auth-user accounts loaded; independent connect, unregister and retry with digest-auth REGISTER traces")
     }
     @MainActor static func verify() async throws {
         try await verifyRegistrationControls(port: ProcessInfo.processInfo.environment["BARESIP_TEST_SIP_PORT"]!)

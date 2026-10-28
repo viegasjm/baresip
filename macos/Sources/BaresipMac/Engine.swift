@@ -68,6 +68,7 @@ import Darwin
         module menu
         module ctrl_tcp
         module_app account
+        account_password_prompt no
         ctrl_tcp_trace yes
         ctrl_tcp_listen 127.0.0.1:\(port)
         """
@@ -116,6 +117,11 @@ import Darwin
             stop(); throw AppError.message("Could not connect to the SIP engine.")
         }
         do {
+            // Fail startup clearly if the account module stopped partway through.
+            for account in accounts {
+                do { _ = try await command("uafind", account.aor) }
+                catch { throw AppError.message("The SIP engine did not load \(account.displayName) (\(account.aor)). Check the Engine log. \(error.localizedDescription)") }
+            }
             for account in accounts where registeringAccounts == nil || registeringAccounts!.contains(account.id) {
                 let id = account.id
                 let password: String

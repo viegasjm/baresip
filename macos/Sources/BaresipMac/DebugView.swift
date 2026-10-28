@@ -44,7 +44,7 @@ struct DebugView: View {
                 }
                 Spacer()
                 Toggle("Capture", isOn: $store.captureDiagnostics).toggleStyle(.switch).fixedSize()
-                Button("Snapshot") { store.captureSnapshot() }.disabled(store.busy)
+                Button("Snapshot") { store.captureSnapshot() }.disabled(store.busy).help("Capture engine version, loaded accounts, registration status, calls, and local audio diagnostics in Debug.")
                 Button { exporting = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
                 Button("Clear") { store.diagnostics = DebugJournal(); selectedEntry = nil; callID = "" }
             }

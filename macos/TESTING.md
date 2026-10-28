@@ -1,10 +1,10 @@
-# Validation — 2026-10-28, version 0.1.8
+# Validation — 2026-10-28, version 0.1.9
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
 | Release app build, bundled libraries, local signature | Pass | Native arm64 app compiles and bundle signature verifies |
 | Swift protocol/credential/state/debug/device routing checks | 14 passed | Framing, redaction, credential encoding, readiness and routing validation |
-| Per-account connection controls | Pass | Connecting A leaves B offline; B connects, unregisters and retries independently without restarting A's registration |
+| Per-account connection controls | Pass | Both accounts use explicit authentication usernames; connecting A leaves B offline; B connects, unregisters and retries independently without restarting A's registration |
 | REGISTER account filtering and export | Pass | Responses and events stay associated with the selected account; other registrations and INVITEs are excluded; authentication is redacted |
 | Local password files | Pass | Round-trip and replacement preserve delimiters; directory mode 0700, file mode 0600; missing/deleted accounts return an empty password; tests use temporary files |
 | DTMF keypad through Store | Pass | Local peer receives 1, 2 and # via SIP INFO on a listen-only call, and RTP telephone-event 5 while sending file audio |
@@ -24,7 +24,7 @@
 | File input | Pass | Live injection, incoming file input, file selected before dialing, EOF and stop-to-listen-only passed for all four codecs |
 | Multiple-call isolation | Pass | File input remains on the selected call; a second simultaneous call sends zero audio payloads, for all four codecs |
 | File conversion | Pass | WAV (44.1 kHz), AIFF and M4A convert to canonical mono 16 kHz PCM WAV; converted samples received over local PCMA RTP |
-| Native visual control inspection | Blocked | Desktop automation returns “native pipe closed before response”; app main threads sampled in normal event waits |
+| Native visual control inspection | Partial | Running 0.1.8 sidebar and Debug inspected through accessibility; reginfo Snapshot confirmed one loaded UA despite two saved accounts. Full visual call-flow inspection remains incomplete |
 | Real microphone send/receive audio | Not verified | Requires an available input device and OS permission |
 | Telnyx development number-based A → B calls | Pass | Two isolated accounts in the same native app process; TLS registration/calling, rewritten SIP Call-IDs, selected-leg hold/resume and hangup; PCMA only |
 | Telnyx development file media and NAT | Pass | Preselected and live-injected six-second generated files: 300 transmit attempts each, zero send errors; B received 289 and 297 additional packets respectively; incoming payload fingerprints match the source file in memory |
@@ -36,7 +36,13 @@ TCP REGISTER → 401 challenge → authenticated REGISTER → 200 OK with its cu
 provider credential. The diagnostic client then received 200 OK Deregistered.
 No failed historical exchange was available, so the original failure's cause
 was not established. This does not establish provider DTMF interoperability.
-Native visual inspection remains unavailable because desktop automation fails.
+Follow-up on 2026-10-28 established the current two-account failure: an explicit
+authentication username triggered the terminal password prompt, aborting account
+loading after the first entry. The running app's reginfo snapshot showed one UA,
+and a local two-account fixture with both authUser fields populated reproduced
+the failure on 0.1.8. Version 0.1.9 disables the prompt only for the native app
+and validates all configured UAs before readiness. Earlier fixtures omitted
+explicit authUser and therefore missed this case.
 
 ## Repeatable commands
 
