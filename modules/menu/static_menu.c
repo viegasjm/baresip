@@ -359,6 +359,46 @@ static int switch_audio_player(struct re_printf *pf, void *arg)
 }
 
 
+/* Pair two local legs before answering through a B2BUA that rewrites Call-ID. */
+static int pair_local_calls(struct re_printf *pf, void *arg)
+{
+	const struct cmd_arg *carg = arg;
+	struct pl first, second;
+	char a[32], b[32];
+	(void)pf;
+	if (re_regex(carg->prm, str_len(carg->prm), "[^ ]+ [^ ]+",
+		     &first, &second) || first.l >= sizeof(a) ||
+	    second.l >= sizeof(b))
+		return EINVAL;
+	pl_strcpy(&first, a, sizeof(a));
+	pl_strcpy(&second, b, sizeof(b));
+	return call_pair_local(uag_call_find(a), uag_call_find(b));
+}
+
+/* Change defaults for future calls without touching existing calls. */
+static int default_audio_source(struct re_printf *pf, void *arg)
+{
+	const struct cmd_arg *carg = arg;
+	struct pl driver, device;
+	struct config *cfg = conf_config();
+	char module[16];
+	(void)pf;
+
+	if (!cfg || re_regex(carg->prm, str_len(carg->prm),
+			     "[^,]+,[~]*", &driver, &device))
+		return EINVAL;
+	if (driver.l >= sizeof(cfg->audio.src_mod) ||
+	    device.l >= sizeof(cfg->audio.src_dev))
+		return EINVAL;
+	pl_strcpy(&driver, module, sizeof(module));
+	if (!ausrc_find(baresip_ausrcl(), module))
+		return ENOENT;
+	pl_strcpy(&driver, cfg->audio.src_mod, sizeof(cfg->audio.src_mod));
+	pl_strcpy(&device, cfg->audio.src_dev, sizeof(cfg->audio.src_dev));
+	return 0;
+}
+
+
 static int switch_audio_source(struct re_printf *pf, void *arg)
 {
 	const struct cmd_arg *carg = arg;
@@ -1249,6 +1289,33 @@ static int cmd_uareg(struct re_printf *pf, void *arg)
 }
 
 
+/* Supply credentials through the local control channel before registering.
+ * URI encoding keeps spaces and delimiters out of command parsing. */
+static int cmd_password(struct re_printf *pf, void *arg)
+{
+	const struct cmd_arg *carg = arg;
+	struct pl word, index, value;
+	struct ua *ua = menu_ua_carg(pf, carg, &word, &index);
+	struct mbuf buffer;
+	int err;
+
+	if (!ua || word.l < 6 || memcmp(word.p, "value=", 6))
+		return EINVAL;
+
+	value = word;
+	pl_advance(&value, 6);
+	mbuf_init(&buffer);
+	err = mbuf_printf(&buffer, "%H", uri_header_unescape, &value);
+	if (!err)
+		err = mbuf_write_u8(&buffer, 0);
+	if (!err)
+		err = account_set_auth_pass(ua_account(ua),
+					    (const char *)buffer.buf);
+	mem_deref(buffer.buf);
+	return err;
+}
+
+
 static int cmd_addheader(struct re_printf *pf, void *arg)
 {
 	const struct cmd_arg *carg = arg;
@@ -1465,6 +1532,8 @@ static const struct cmd cmdv[] = {
                              "direction.",              cmd_answerdir        },
 {"answermode",0,    CMD_PRM, "Set answer mode",         cmd_set_answermode   },
 {"auplay",    0,    CMD_PRM, "Switch audio player",     switch_audio_player  },
+{"callpair", 0, CMD_PRM, "Pair local call legs", pair_local_calls },
+{"ausrcdefault", 0, CMD_PRM, "Source for future calls", default_audio_source },
 {"ausrc",     0,    CMD_PRM, "Switch audio source",     switch_audio_source  },
 {"callstat",  'c',        0, "Call status",             ua_print_call_status },
 {"dial",      'd',  CMD_PRM, "Dial",                    dial_handler         },
@@ -1489,6 +1558,7 @@ static const struct cmd cmdv[] = {
 {"uafind",    0,    CMD_PRM, "Find User-Agent <aor>",   cmd_ua_find          },
 {"uanew",     0,    CMD_PRM, "Create User-Agent",       create_ua            },
 {"uareg",     0,    CMD_PRM, "UA register <regint> [index]", cmd_uareg       },
+{"uapassword",0,    CMD_PRM, "Set URI-encoded UA password", cmd_password    },
 {"uaaddheader", 0,  CMD_PRM, "Add custom header to UA",      cmd_addheader   },
 {"uarmheader",  0,  CMD_PRM, "Remove custom header from UA", cmd_rmheader    },
 {"vidsrc",    0,    CMD_PRM, "Switch video source",     switch_video_source  },

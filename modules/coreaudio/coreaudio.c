@@ -94,6 +94,7 @@ int coreaudio_enum_devices(const char *name, struct list *dev_list,
 		const char *name_str;
 		/* fallback if CFStringGetCStringPtr fails */
 		char name_buf[64];
+		char uid_buf[1024];
 
 		propertyAddress.mSelector   = kAudioDevicePropertyStreams;
 		status = AudioObjectGetPropertyDataSize(audioDevices[i],
@@ -119,6 +120,14 @@ int coreaudio_enum_devices(const char *name, struct list *dev_list,
 			continue;
 		}
 
+		/* A stable UID remains usable if a device name changes. */
+		if (uid && CFStringGetCString(deviceUID, uid_buf,
+			    sizeof(uid_buf), kCFStringEncodingUTF8)
+			    && 0 == str_cmp(name, uid_buf)) {
+			*uid = deviceUID;
+			break;
+		}
+
 		dataSize = sizeof(deviceName);
 		propertyAddress.mSelector =
 			kAudioDevicePropertyDeviceNameCFString;
@@ -133,6 +142,7 @@ int coreaudio_enum_devices(const char *name, struct list *dev_list,
 			warning("AudioObjectGetPropertyData"
 				" (kAudioDevicePropertyDeviceNameCFString)"
 				" failed: %i\n", status);
+			CFRelease(deviceUID);
 			continue;
 		}
 
@@ -148,6 +158,8 @@ int coreaudio_enum_devices(const char *name, struct list *dev_list,
 						kCFStringEncodingUTF8)) {
 				warning("CFStringGetCString "
 					" failed: %i\n", status);
+				CFRelease(deviceName);
+				CFRelease(deviceUID);
 				continue;
 			}
 			name_str = name_buf;
@@ -155,15 +167,18 @@ int coreaudio_enum_devices(const char *name, struct list *dev_list,
 
 		if (uid) {
 			if (0 == str_casecmp(name, name_str)) {
+				CFRelease(deviceName);
 				*uid = deviceUID;
 				break;
 			}
 		}
 		else {
 			err = mediadev_add(dev_list, name_str);
-			if (err)
-				break;
 		}
+		CFRelease(deviceName);
+		CFRelease(deviceUID);
+		if (err)
+			break;
 	}
 
  out:

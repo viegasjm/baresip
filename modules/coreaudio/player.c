@@ -79,7 +79,7 @@ int coreaudio_player_alloc(struct auplay_st **stp, const struct auplay *ap,
 			   struct auplay_prm *prm, const char *device,
 			   auplay_write_h *wh, void *arg)
 {
-	AudioStreamBasicDescription fmt;
+	AudioStreamBasicDescription fmt = {0};
 	struct auplay_st *st;
 	uint32_t sampc, bytc, i;
 	OSStatus status;
@@ -122,6 +122,8 @@ int coreaudio_player_alloc(struct auplay_st **stp, const struct auplay *ap,
 	fmt.mChannelsPerFrame = prm->ch;
 	fmt.mBitsPerChannel   = 8 * st->sampsz;
 
+	info("coreaudio: opening speaker: %u Hz, %u channels\n",
+	     prm->srate, prm->ch);
 	status = AudioQueueNewOutput(&fmt, play_handler, st, NULL,
 				     kCFRunLoopCommonModes, 0, &st->queue);
 	if (status) {
