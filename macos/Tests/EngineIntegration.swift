@@ -74,6 +74,15 @@ import AVFoundation
         guard let port = ProcessInfo.processInfo.environment["BARESIP_TEST_SIP_PORT"], let output = catalog.outputs.first else {
             throw AppError.message("Local SIP fixture and speaker are required for the app media test")
         }
+        let permissionBefore = AVCaptureDevice.authorizationStatus(for: .audio)
+        let keypad = KeypadAudio()
+        try keypad.play("5", outputUID: output.uid)
+        try require(keypad.isPlaying && keypad.outputUID == output.uid, "Local keypad sound did not start on the selected speaker")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        try require(keypad.playbackTime > 0.02, "Local keypad playback did not advance")
+        keypad.stop()
+        try require(!keypad.isPlaying && AVCaptureDevice.authorizationStatus(for: .audio) == permissionBefore)
+        print("PASS: local keypad audio renders through the selected speaker without requesting a microphone")
         let noMic = AudioDeviceCatalog(devices: [output], defaultOutputUID: output.uid)
         let store = Store(storageURL: storage, engine: Engine(loopbackOnly: true), audioCatalog: { noMic })
         defer {
@@ -112,7 +121,18 @@ import AVFoundation
                 try await Task.sleep(nanoseconds: 150_000_000)
             }
             if attempt == 0 {
-                for digit in ["1", "2", "#"] { store.sendDTMF(digit); try await idle(store) }
+                let previousKeypadSounds = store.keypadSounds
+                defer { store.keypadSounds = previousKeypadSounds }
+                store.keypadSounds = true
+                store.outputDeviceUID = "missing-keypad-speaker"
+                store.sendDTMF("1"); try await idle(store)
+                try require(store.keypadSoundIssue != nil && store.error == nil, "Unavailable local speaker must not block remote DTMF")
+                store.outputDeviceUID = output.uid
+                store.sendDTMF("2"); try await idle(store)
+                try require(store.keypadSoundIssue == nil, store.keypadSoundIssue ?? "Local keypad sound failed")
+                store.keypadSounds = false
+                store.sendDTMF("#"); try await idle(store)
+                try require(store.call?.audioInput.contains("Listen only") == true, "Keypad feedback changed the call's audio source")
                 try await waitFor("DTMF INFO captured") { store.diagnostics.entries.filter { $0.summary.contains("INFO ") }.count >= 3 }
 
                 let source = FileManager.default.temporaryDirectory.appendingPathComponent("synthetic-input-\(UUID().uuidString).wav")

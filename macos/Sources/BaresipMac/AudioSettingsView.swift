@@ -60,6 +60,13 @@ struct AudioSettingsView: View {
                         } else { Label("Choose an available speaker.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
                 } label: { Label("Output", systemImage: "speaker.wave.2") }
+                HStack {
+                    Toggle("Keypad sounds", isOn: $store.keypadSounds).toggleStyle(.checkbox)
+                    Spacer()
+                    Button("Test keypad sound") { store.playKeypadSound() }.disabled(!store.keypadSounds)
+                }
+                Text("Hear a short tone through the selected speaker when sending a digit. Turning this off keeps sending digits to the call.").font(.caption).foregroundStyle(.secondary)
+                if let issue = store.keypadSoundIssue { Text(issue).font(.caption).foregroundStyle(.orange) }
                 Toggle("Use mono device audio", isOn: $store.monoDeviceAudio).disabled(store.busy || !store.calls.isEmpty)
                 Text("Device choices are saved on this Mac. Changing a device reconnects idle accounts. Finish active calls before changing devices. Mono mode applies after reconnecting.").font(.caption).foregroundStyle(.secondary)
             }.padding(28)

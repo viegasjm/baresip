@@ -1,12 +1,15 @@
-# Validation — 2026-10-28, version 0.1.9
+# Validation — 2026-10-28, version 0.1.10
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
 | Release app build, bundled libraries, local signature | Pass | Native arm64 app compiles and bundle signature verifies |
-| Swift protocol/credential/state/debug/device routing checks | 14 passed | Framing, redaction, credential encoding, readiness and routing validation |
+| Swift protocol/credential/state/debug/device routing checks | 15 passed | Framing, redaction, credential encoding, readiness and routing validation |
 | Per-account connection controls | Pass | Both accounts use explicit authentication usernames; connecting A leaves B offline; B connects, unregisters and retries independently without restarting A's registration |
 | REGISTER account filtering and export | Pass | Responses and events stay associated with the selected account; other registrations and INVITEs are excluded; authentication is redacted |
 | Local password files | Pass | Round-trip and replacement preserve delimiters; directory mode 0700, file mode 0600; missing/deleted accounts return an empty password; tests use temporary files |
+| Local keypad tone generation | Pass | All twelve keys have the expected row/column frequency peaks, bounded amplitude and zero endpoints for short fades |
+| Local keypad speaker playback | Pass | AVAudioPlayer starts and advances playback on the selected real output UID without changing microphone permission |
+| Local feedback independent of remote digits | Pass | The local peer still receives 1, 2 and # when the local speaker is unavailable, available or keypad feedback is muted; call input remains listen-only |
 | DTMF keypad through Store | Pass | Local peer receives 1, 2 and # via SIP INFO on a listen-only call, and RTP telephone-event 5 while sending file audio |
 | Two simultaneous local digest registrations | Pass | Accounts authenticate independently using delimiter-rich passwords |
 | SIP Call-ID and first INVITE capture | Pass | Structured trace IDs match the actual SIP call events |

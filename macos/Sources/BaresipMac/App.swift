@@ -227,7 +227,12 @@ struct MainView: View {
                 if call.connected {
                     if showKeypad {
                         VStack(spacing: 8) {
-                            Text("Send DTMF to this call").font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Text("Send DTMF to this call").font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Toggle("Keypad sounds", isOn: $store.keypadSounds).toggleStyle(.checkbox).font(.caption)
+                            }
+                            if let issue = store.keypadSoundIssue { Text(issue).font(.caption).foregroundStyle(.orange) }
                             ForEach(["123", "456", "789", "*0#"], id: \.self) { row in
                                 HStack(spacing: 10) {
                                     ForEach(Array(row).map(String.init), id: \.self) { digit in

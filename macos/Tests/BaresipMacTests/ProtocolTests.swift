@@ -17,6 +17,7 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         suite.testConnectionStatusReflectsSelectedAccount()
         suite.testAccountCannotInjectConfiguration()
         suite.testFirstInviteAndAuthenticationRedaction()
+        try suite.testKeypadToneFrequencies()
         try suite.testPrivatePasswordStorage()
         suite.testRegistrationTraceIsolation()
         suite.testDebugHistoryAndRetention()
@@ -24,7 +25,28 @@ func XCTAssertThrowsError<T>(_ value: @autoclosure () throws -> T) {
         suite.testDistinctLocalLegsAndPairing()
         suite.testLocalAndRemoteHoldState()
         try suite.testAudioDeviceRouting()
-        print("PASS: 14 protocol, credential, connection-state, debug and device-routing tests")
+        print("PASS: 15 protocol, credential, connection-state, debug and device-routing tests")
+    }
+    func testKeypadToneFrequencies() throws {
+        let frequencies = [697.0, 770.0, 852.0, 941.0, 1209.0, 1336.0, 1477.0]
+        for (row, keys) in ["123", "456", "789", "*0#"].enumerated() {
+            for (column, key) in keys.enumerated() {
+                let samples = try KeypadTone.samples(for: String(key))
+                let powers = frequencies.map { frequency -> Double in
+                    var real = 0.0, imaginary = 0.0
+                    for (index, sample) in samples.enumerated() {
+                        let angle = 2 * Double.pi * frequency * Double(index) / Double(KeypadTone.sampleRate)
+                        real += Double(sample) * cos(angle); imaginary += Double(sample) * sin(angle)
+                    }
+                    return real * real + imaginary * imaginary
+                }
+                let strongest = Array(powers.indices.sorted { powers[$0] > powers[$1] }.prefix(2)).sorted()
+                XCTAssertEqual(strongest, [row, 4 + column])
+                XCTAssertTrue(samples.allSatisfy { abs(Int($0)) < 10000 })
+                XCTAssertEqual(samples.first, 0); XCTAssertEqual(samples.last, 0)
+            }
+        }
+        XCTAssertThrowsError(try KeypadTone.wave(for: "x"))
     }
     func testPrivatePasswordStorage() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("password-test-\(UUID().uuidString)")

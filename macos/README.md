@@ -9,6 +9,19 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.10 local keypad feedback
+
+The in-call keypad now plays each key's standard two-frequency tone locally
+through the selected speaker. Keypad sounds are enabled by default, can be
+muted from the keypad or Audio tab, and have a **Test keypad sound** button in
+Audio settings. This is local feedback; it does not confirm that the remote IVR
+accepted a digit. Earlier versions sent DTMF without generating a local tone.
+
+Tones are generated in memory and need no microphone permission. They do not
+replace the call's audio source or inject extra inband DTMF. A missing local
+speaker shows a sound warning while digits continue through the existing SIP
+DTMF path. System output volume and mute still apply.
+
 ## Version 0.1.9 multiple-account loading fix
 
 Accounts with an explicit authentication username could stop account-file

@@ -2,6 +2,14 @@ import SwiftUI
 import AVFoundation
 
 @MainActor final class Store: ObservableObject {
+    @Published var keypadSounds = UserDefaults.standard.object(forKey: "keypadSounds") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(keypadSounds, forKey: "keypadSounds")
+            if !keypadSounds { keypadAudio.stop(); keypadSoundIssue = nil }
+        }
+    }
+    @Published var keypadSoundIssue: String?
+    private let keypadAudio = KeypadAudio()
     @Published var diagnostics = DebugJournal()
     @Published var captureDiagnostics = true
     @Published var monoDeviceAudio = UserDefaults.standard.object(forKey: "monoDeviceAudio") as? Bool ?? true {
@@ -126,9 +134,22 @@ import AVFoundation
     func sendDTMF(_ digit: String) {
         guard let call, call.connected, !call.held,
               digit.count == 1, "0123456789*#".contains(digit) else { return }
-        control("sndcode", params: digit)
+        control("sndcode", params: digit) { [weak self] in self?.playKeypadSound(digit) }
+    }
+    func playKeypadSound(_ digit: String = "5") {
+        guard keypadSounds else { return }
+        let catalog = audioCatalog()
+        guard let output = catalog.resolve(outputDeviceUID, input: false) else {
+            keypadSoundIssue = "The selected speaker is unavailable for keypad sounds."
+            return
+        }
+        do {
+            try keypadAudio.play(digit, outputUID: output.uid)
+            keypadSoundIssue = nil
+        } catch { keypadSoundIssue = error.localizedDescription }
     }
     func disconnect() {
+        keypadAudio.stop()
         registrationTask?.cancel(); registrationTask = nil
         engine.stop(); connected = false; calls = []; attendedTransfer = false
         activeAccounts = []; registrations = [:]; registrationErrors = [:]; status = "Disconnected"
