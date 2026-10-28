@@ -9,6 +9,20 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.11 themes
+
+Open **Appearance** to choose Telnyx, System, Ocean or Sunset. Telnyx is the
+initial palette, with mint green, charcoal and ivory surfaces. System follows
+the Mac's accent and neutral colors. Light, Dark and System appearance choices
+work with every palette. Theme and appearance preferences apply immediately and
+are saved on this Mac.
+
+Colors apply to the account sidebar, call controls, account editor, Audio and
+Debug, including group surfaces and signaling highlights. Status indicators
+retain semantic success, warning and error colors. Custom palettes use separate
+accent-text and primary-button colors to retain contrast in light and dark mode.
+Changing a theme does not restart the SIP engine or change account settings.
+
 ## Version 0.1.10 local keypad feedback
 
 The in-call keypad now plays each key's standard two-frequency tone locally

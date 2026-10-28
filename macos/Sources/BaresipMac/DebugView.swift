@@ -9,6 +9,9 @@ struct DebugTextFile: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: Data(text.utf8)) }
 }
 struct DebugView: View {
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
     @EnvironmentObject var store: Store
     @State private var callID = ""
     @State private var category = "All"
@@ -94,7 +97,7 @@ struct DebugView: View {
                     ForEach(entries) { entry in
                         VStack(alignment: .leading, spacing: 5) {
                             HStack {
-                                Text(entry.category).font(.caption.weight(.semibold)).foregroundStyle(entry.category == "SIP" ? Color.teal : .secondary)
+                                Text(entry.category).font(.caption.weight(.semibold)).foregroundStyle(entry.category == "SIP" ? palette.accent : .secondary)
                                 Spacer()
                                 Text(entry.timestamp.formatted(date: .omitted, time: .standard)).font(.caption2).foregroundStyle(.secondary)
                             }
@@ -110,11 +113,11 @@ struct DebugView: View {
                     }
                     ScrollView([.horizontal, .vertical]) {
                         Text(detailText).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(12).background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(12).background(palette.surface, in: RoundedRectangle(cornerRadius: 8))
                 }.padding(.leading, 12).frame(minWidth: 350)
             }.frame(minHeight: 240, maxHeight: .infinity)
             Text("Authentication headers are hidden. Addresses and custom headers remain visible. Capture stays in memory until export or quit. Mono device audio applies after reconnecting.").font(.caption).foregroundStyle(.secondary)
-        }.padding(24)
+        }.padding(24).background(palette.canvas)
         .fileExporter(isPresented: $exporting, document: DebugTextFile(text: store.diagnostics.export(callID: callID.isEmpty ? nil : callID, registrationAccount: registrationOnly ? store.account?.aor : nil)), contentType: .plainText, defaultFilename: "Baresip-Diagnostics-\(Date().formatted(.iso8601.year().month().day()))") { result in
             if case .failure(let error) = result { store.error = error.localizedDescription }
         }

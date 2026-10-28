@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
     @StateObject var store = Store()
     var body: some Scene {
         WindowGroup("Baresip Mac") {
-            MainView().environmentObject(store)
+            MainView().environmentObject(store).modifier(WorkspaceTheme())
                 .onAppear { delegate.store = store }
                 .frame(minWidth: 980, minHeight: 680)
         }
@@ -30,6 +30,9 @@ import UniformTypeIdentifiers
     }
 }
 struct MainView: View {
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
     @EnvironmentObject var store: Store
     @State private var editor: AccountEditorRequest?
     @State private var showHeaders = false
@@ -63,10 +66,11 @@ struct MainView: View {
                                     .accessibilityLabel("\(store.connection(for: account).canDial ? "Disconnect" : "Connect or register") \(account.displayName)")
                             }
                         }.padding(.vertical, 7).tag(account.id)
+                        .listRowBackground(store.selectedAccount == account.id ? palette.selection : Color.clear)
                         .contextMenu { Button("Edit account") { editor = AccountEditorRequest(account: account) } }
                         .onTapGesture(count: 2) { store.selectedAccount = account.id; editor = AccountEditorRequest(account: account) }
                     }
-                }.listStyle(.sidebar)
+                }.listStyle(.sidebar).scrollContentBackground(.hidden)
                 if !store.calls.isEmpty {
                     Divider()
                     Text("ACTIVE CALLS").font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(16)
@@ -77,15 +81,15 @@ struct MainView: View {
                                 Text("\(call.statusTitle) · \(store.accounts.first { $0.aor == call.account }?.displayName ?? call.account)").font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 5).tag(call.id)
                         }
-                    }.listStyle(.sidebar).frame(maxHeight: 240)
+                    }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(maxHeight: 240)
                 }
                 Divider()
                 HStack {
-                    Image(systemName: "waveform.circle.fill").font(.title2).foregroundStyle(.teal)
+                    Image(systemName: "waveform.circle.fill").font(.title2).foregroundStyle(palette.accent)
                     VStack(alignment: .leading) { Text("Baresip Mac").font(.headline); Text("Powered by Baresip 4.12").font(.caption2).foregroundStyle(.secondary) }
                     Spacer()
                 }.padding(16)
-            }.navigationSplitViewColumnWidth(min: 230, ideal: 250, max: 300)
+            }.background(palette.sidebar).navigationSplitViewColumnWidth(min: 230, ideal: 250, max: 300)
         } detail: {
             TabView(selection: $workspaceTab) {
             ScrollView {
@@ -107,7 +111,7 @@ struct MainView: View {
                     } description: {
                         Text("Add a SIP account to get started. Manage multiple providers, choose your codecs, and send custom headers.")
                     } actions: {
-                        Button("Add SIP account") { editor = AccountEditorRequest(account: SIPAccount()) }.buttonStyle(.borderedProminent).controlSize(.large)
+                        Button("Add SIP account") { editor = AccountEditorRequest(account: SIPAccount()) }.buttonStyle(.borderedProminent).tint(palette.button).foregroundStyle(palette.buttonText).controlSize(.large)
                     }
                     Spacer()
                 } else {
@@ -117,7 +121,7 @@ struct MainView: View {
                                 Label("This account is not registered", systemImage: "exclamationmark.triangle.fill").font(.headline).foregroundStyle(.red)
                                 Text(store.registrationErrors[account.aor] ?? "Check the username, password, domain, and transport, then retry registration.").textSelection(.enabled)
                                 HStack {
-                                    Button("Edit account") { editor = AccountEditorRequest(account: account) }.buttonStyle(.borderedProminent)
+                                    Button("Edit account") { editor = AccountEditorRequest(account: account) }.buttonStyle(.borderedProminent).tint(palette.button).foregroundStyle(palette.buttonText)
                                     Button("Retry registration") { store.registrationAction(account) }.disabled(store.busy)
                                 }
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
@@ -129,8 +133,8 @@ struct MainView: View {
                             HStack {
                                 TextField("Phone number, extension, or sip:user@domain", text: $store.destination)
                                     .textFieldStyle(.roundedBorder).font(.title3).onSubmit { store.dial() }
-                                Button { store.dial() } label: { Label("Call", systemImage: "phone.fill").frame(width: 74) }
-                                    .buttonStyle(.borderedProminent).tint(.teal).controlSize(.large)
+                                Button { store.dial() } label: { Label("Call", systemImage: "phone.fill").foregroundStyle(palette.buttonText).frame(width: 74) }
+                                    .buttonStyle(.borderedProminent).tint(palette.button).controlSize(.large)
                                     .disabled(!store.accountConnection.canDial || store.busy || store.destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             }
                             HStack {
@@ -170,13 +174,14 @@ struct MainView: View {
                         }.frame(height: 100)
                     }.foregroundStyle(.secondary)
                 }
-            }.padding(28).frame(maxWidth: .infinity, minHeight: 620, alignment: .top).background(Color(nsColor: .windowBackgroundColor))
+            }.padding(28).frame(maxWidth: .infinity, minHeight: 620, alignment: .top).background(palette.canvas)
             }.tabItem { Label("Calls", systemImage: "phone") }.tag("calls")
             AudioSettingsView().tabItem { Label("Audio", systemImage: "speaker.wave.2") }.tag("audio")
+            AppearanceSettingsView().tabItem { Label("Appearance", systemImage: "paintpalette") }.tag("appearance")
             DebugView().tabItem { Label("Debug", systemImage: "ant") }.tag("debug")
             }
         }
-        .tint(.teal)
+        .background(palette.canvas)
         .fileImporter(isPresented: $showAudioFilePicker, allowedContentTypes: [.audio]) { result in
             switch result {
             case .success(let url): store.importAudioFile(url, callID: audioFileCallID)
@@ -204,7 +209,7 @@ struct MainView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 14) {
-                    Image(systemName: call.held ? "pause.circle.fill" : "phone.circle.fill").font(.system(size: 42)).foregroundStyle(.teal)
+                    Image(systemName: call.held ? "pause.circle.fill" : "phone.circle.fill").font(.system(size: 42)).foregroundStyle(palette.accent)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(call.peer.replacingOccurrences(of: "sip:", with: "")).font(.title2.weight(.medium)).textSelection(.enabled)
                         Text("\(call.statusTitle) · \(call.account.replacingOccurrences(of: "sip:", with: ""))").font(.caption).foregroundStyle(.secondary)
@@ -255,7 +260,7 @@ struct MainView: View {
                             Text("Consult with the recipient, then complete the transfer.").font(.caption).foregroundStyle(.secondary)
                             Spacer()
                             Button("Cancel transfer") { store.finishTransfer(abort: true) }
-                            Button("Complete transfer") { store.finishTransfer(abort: false) }.buttonStyle(.borderedProminent)
+                            Button("Complete transfer") { store.finishTransfer(abort: false) }.buttonStyle(.borderedProminent).tint(palette.button).foregroundStyle(palette.buttonText)
                         }.disabled(store.busy)
                     } else {
                         HStack {
@@ -286,6 +291,9 @@ struct HeadersEditor: View {
     }
 }
 struct AccountEditor: View {
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    private var palette: ThemePalette { theme.palette(for: scheme) }
     @EnvironmentObject var store: Store
     @Environment(\.dismiss) var dismiss
     @State var account: SIPAccount
@@ -296,7 +304,7 @@ struct AccountEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
-                Image(systemName: "person.crop.circle.badge.plus").font(.title).foregroundStyle(.teal)
+                Image(systemName: "person.crop.circle.badge.plus").font(.title).foregroundStyle(palette.accent)
                 VStack(alignment: .leading, spacing: 3) { Text(store.accounts.contains(where: { $0.id == account.id }) ? "Edit account" : "Add SIP account").font(.title2.weight(.semibold)); Text("Your provider, your preferences.").foregroundStyle(.secondary) }
             }
             TabView {
@@ -341,10 +349,10 @@ struct AccountEditor: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save account") {
                     do { try store.save(account, password: password); dismiss() } catch { validationError = error.localizedDescription }
-                }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                }.buttonStyle(.borderedProminent).tint(palette.button).foregroundStyle(palette.buttonText).keyboardShortcut(.defaultAction)
                 .disabled(passwordLoading || store.busy || !store.calls.isEmpty || (passwordReadFailed && password.isEmpty))
             }
-        }.padding(24).frame(width: 640, height: 560).tint(.teal)
+        }.padding(24).frame(width: 640, height: 560).tint(palette.accent)
         .task {
             let id = account.id
             do { password = try await Task.detached { try Passwords.load(id) }.value }

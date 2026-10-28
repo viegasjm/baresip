@@ -2,6 +2,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct AudioSettingsView: View {
+    @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
     @EnvironmentObject var store: Store
     @State private var showFilePicker = false
     var body: some View {
@@ -71,6 +73,7 @@ struct AudioSettingsView: View {
                 Text("Device choices are saved on this Mac. Changing a device reconnects idle accounts. Finish active calls before changing devices. Mono mode applies after reconnecting.").font(.caption).foregroundStyle(.secondary)
             }.padding(28)
         }
+        .background(theme.palette(for: scheme).canvas)
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.audio]) { result in
             switch result {
             case .success(let url): store.importAudioFile(url)

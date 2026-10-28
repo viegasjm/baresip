@@ -1,8 +1,10 @@
-# Validation — 2026-10-28, version 0.1.10
+# Validation — 2026-10-28, version 0.1.11
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
 | Release app build, bundled libraries, local signature | Pass | Native arm64 app compiles and bundle signature verifies |
+| Theme build and custom color contrast | Pass | All theme views compile; custom palette accent/canvas and call-button label/fill pairs exceed 4.5:1 in both light and dark mode (minimum measured 5.44:1) |
+| Live theme picker visual inspection | Blocked | Isolated preview attempt failed with the native desktop pipe error; no live theme switching or relaunch-persistence inspection is claimed |
 | Swift protocol/credential/state/debug/device routing checks | 15 passed | Framing, redaction, credential encoding, readiness and routing validation |
 | Per-account connection controls | Pass | Both accounts use explicit authentication usernames; connecting A leaves B offline; B connects, unregisters and retries independently without restarting A's registration |
 | REGISTER account filtering and export | Pass | Responses and events stay associated with the selected account; other registrations and INVITEs are excluded; authentication is redacted |
@@ -48,6 +50,11 @@ and validates all configured UAs before readiness. Earlier fixtures omitted
 explicit authUser and therefore missed this case.
 
 ## Repeatable commands
+
+The 0.1.11 changes are limited to view styling and appearance preferences. The
+full 15-check and SIP/media suite below last passed for 0.1.10; the theme release
+was checked by a full native build, palette contrast calculations and bundle
+signature verification. No engine or call-state code changed.
 
 Standard checks (no microphone capture; app media fixture requires a speaker):
 
