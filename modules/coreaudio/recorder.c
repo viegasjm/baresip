@@ -88,7 +88,7 @@ int coreaudio_recorder_alloc(struct ausrc_st **stp, const struct ausrc *as,
 			     struct ausrc_prm *prm, const char *device,
 			     ausrc_read_h *rh, ausrc_error_h *errh, void *arg)
 {
-	AudioStreamBasicDescription fmt;
+	AudioStreamBasicDescription fmt = {0};
 	struct ausrc_st *st;
 	uint32_t sampc, bytc, i;
 	OSStatus status;
@@ -137,6 +137,8 @@ int coreaudio_recorder_alloc(struct ausrc_st **stp, const struct ausrc *as,
 	fmt.mChannelsPerFrame = prm->ch;
 	fmt.mBitsPerChannel   = 8 * st->sampsz;
 
+	info("coreaudio: opening microphone: %u Hz, %u channels\n",
+	     prm->srate, prm->ch);
 	status = AudioQueueNewInput(&fmt, record_handler, st, NULL,
 				     kCFRunLoopCommonModes, 0, &st->queue);
 	if (status) {

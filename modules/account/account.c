@@ -27,6 +27,9 @@
  */
 
 
+static bool password_prompt = true;
+
+
 static int account_write_template(const char *file)
 {
 	FILE *f = NULL;
@@ -166,7 +169,7 @@ static int line_handler(const struct pl *addr, void *arg)
 	}
 
 	/* prompt password if auth_user is set, but auth_pass is not  */
-	if (str_isset(account_auth_user(acc)) &&
+	if (password_prompt && str_isset(account_auth_user(acc)) &&
 	    !str_isset(account_auth_pass(acc))) {
 		char *pass = NULL;
 
@@ -235,6 +238,9 @@ static int account_read_file(void)
 
 static int module_init(void)
 {
+	password_prompt = true;
+	(void)conf_get_bool(conf_cur(), "account_password_prompt",
+			    &password_prompt);
 	return account_read_file();
 }
 

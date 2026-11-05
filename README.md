@@ -131,6 +131,12 @@ Distributed under BSD license
   - MQTT (Message Queue Telemetry Transport) module
 
 
+## Native macOS client
+
+This fork includes a SwiftUI desktop client with account management, codec
+priority controls, call hold and transfer, and outgoing SIP header editing.
+See [macos/README.md](macos/README.md) for building, usage and validation status.
+
 ## Building
 
 baresip is using CMake, and the following packages must be

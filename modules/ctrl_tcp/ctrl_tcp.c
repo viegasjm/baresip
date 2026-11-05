@@ -6,6 +6,7 @@
 
 #include <re.h>
 #include <baresip.h>
+#include <string.h>
 
 #include "tcp_netstring.h"
 
@@ -96,6 +97,7 @@ struct ctrl_st {
 };
 
 static struct ctrl_st *ctrl = NULL;  /* allow only one instance */
+static bool trace_enabled;
 
 static int print_handler(const char *p, size_t size, void *arg)
 {
@@ -269,6 +271,14 @@ static void event_handler(enum bevent_ev ev, struct bevent *event, void *arg)
 
 	err = odict_entry_add(od, "event", ODICT_BOOL, true);
 	err |= bevent_odict_encode(od, event);
+	if (bevent_get_call(event)) {
+		err |= odict_entry_add(od, "leg_id", ODICT_STRING,
+			call_leg_id(bevent_get_call(event)));
+		err |= odict_entry_add(od, "local_peer_leg", ODICT_STRING,
+			call_local_peer_id(bevent_get_call(event)));
+		err |= odict_entry_add(od, "local_hold", ODICT_BOOL,
+			call_is_onhold(bevent_get_call(event)));
+	}
 	if (err) {
 		warning("ctrl_tcp: failed to encode event (%m)\n", err);
 		goto out;
@@ -380,6 +390,57 @@ static int ctrl_alloc(struct ctrl_st **stp, const struct sa *laddr)
 }
 
 
+/* Trace decrypted SIP messages as structured events, including TLS traffic.
+ * Enabled explicitly by the desktop client; regular ctrl_tcp is unchanged. */
+static void trace_handler(bool tx, enum sip_transp tp,
+			  const struct sa *src, const struct sa *dst,
+			  const uint8_t *pkt, size_t len, void *arg)
+{
+	struct odict *od = NULL;
+	struct mbuf *buf = NULL;
+	char *message = NULL;
+	char source[128], destination[128];
+	int err;
+	(void)arg;
+	if (!ctrl || !ctrl->tc || len > 65536)
+		return;
+	buf = mbuf_alloc(len + 1024);
+	if (!buf)
+		return;
+	buf->pos = NETSTRING_HEADER_SIZE;
+	struct re_printf pf = {print_handler, buf};
+	message = mem_alloc(len + 1, NULL);
+	if (!message)
+		goto out;
+	memcpy(message, pkt, len);
+	message[len] = '\0';
+	err = odict_alloc(&od, 16);
+	if (err)
+		goto out;
+	re_snprintf(source, sizeof(source), "%J", src);
+	re_snprintf(destination, sizeof(destination), "%J", dst);
+	err |= odict_entry_add(od, "event", ODICT_BOOL, true);
+	err |= odict_entry_add(od, "type", ODICT_STRING, "SIP_TRACE");
+	err |= odict_entry_add(od, "direction", ODICT_STRING,
+			       tx ? "sent" : "received");
+	err |= odict_entry_add(od, "transport", ODICT_STRING,
+			       sip_transp_name(tp));
+	err |= odict_entry_add(od, "source", ODICT_STRING, source);
+	err |= odict_entry_add(od, "destination", ODICT_STRING, destination);
+	err |= odict_entry_add(od, "message", ODICT_STRING, message);
+	if (!err)
+		err = json_encode_odict(&pf, od);
+	if (!err) {
+		buf->pos = NETSTRING_HEADER_SIZE;
+		(void)tcp_send(ctrl->tc, buf);
+	}
+out:
+	mem_deref(message);
+	mem_deref(od);
+	mem_deref(buf);
+}
+
+
 static int ctrl_init(void)
 {
 	struct sa laddr;
@@ -400,6 +461,9 @@ static int ctrl_init(void)
 	err = message_listen(baresip_message(), message_handler, ctrl);
 	if (err)
 		return err;
+	(void)conf_get_bool(conf_cur(), "ctrl_tcp_trace", &trace_enabled);
+	if (trace_enabled)
+		sip_set_trace_handler(uag_sip(), trace_handler);
 
 	return 0;
 }
@@ -407,6 +471,8 @@ static int ctrl_init(void)
 
 static int ctrl_close(void)
 {
+	if (trace_enabled)
+		sip_set_trace_handler(uag_sip(), NULL);
 	bevent_unregister(event_handler);
 	message_unlisten(baresip_message(), message_handler);
 	ctrl = mem_deref(ctrl);

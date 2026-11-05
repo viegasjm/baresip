@@ -40,6 +40,49 @@ static int call_audio_debug(struct re_printf *pf, void *arg)
 }
 
 
+/* Switch only the selected call, renegotiating its transmit direction. */
+static int call_source(struct re_printf *pf, void *arg)
+{
+	const struct cmd_arg *carg = arg;
+	struct call *call = menu_callcur();
+	struct pl driver, device;
+	char module[16], dev[128];
+	bool listen = 0 == str_cmp(carg->prm, "none");
+	int err;
+	(void)pf;
+
+	if (!call || (call_state(call) != CALL_STATE_INCOMING &&
+		      call_state(call) != CALL_STATE_ESTABLISHED))
+		return EINVAL;
+	if (!call_sdp_change_allowed(call))
+		return EBUSY;
+	if (listen) {
+		str_ncpy(module, "coreaudio", sizeof(module));
+		str_ncpy(dev, "default", sizeof(dev));
+	}
+	else {
+		if (re_regex(carg->prm, str_len(carg->prm),
+			     "[^,]+,[~]*", &driver, &device) ||
+		    driver.l >= sizeof(module) || device.l >= sizeof(dev))
+			return EINVAL;
+		pl_strcpy(&driver, module, sizeof(module));
+		pl_strcpy(&device, dev, sizeof(dev));
+		if (0 == str_cmp(module, "aufile")) {
+			struct ausrc_prm prm = {0};
+			err = ausrc_info(baresip_ausrcl(), module, &prm, dev);
+			if (err)
+				return err;
+		}
+	}
+	err = audio_configure_source(call_audio(call), module, dev);
+	if (err)
+		return err;
+	call_set_media_direction(call, listen ? SDP_RECVONLY : SDP_SENDRECV,
+				SDP_INACTIVE);
+	return call_state(call) == CALL_STATE_ESTABLISHED ? call_modify(call) : 0;
+}
+
+
 static int cmd_find_call(struct re_printf *pf, void *arg)
 {
 	struct cmd_arg *carg = arg;
@@ -257,12 +300,14 @@ static int attended_xfer(struct re_printf *pf, void *arg)
 	const struct cmd_arg *carg = arg;
 	struct ua *ua = carg->data ? carg->data : menu_uacur();
 	struct menu *menu = menu_get();
+	enum sdp_dir adir = SDP_SENDRECV, vdir = SDP_INACTIVE;
 	int err = 0;
 
 	(void)pf;
 
 	if (!str_len(carg->prm)) {
 		info ("menu: no transfer target specified\n");
+		err = EINVAL;
 		goto out;
 	}
 
@@ -270,14 +315,18 @@ static int attended_xfer(struct re_printf *pf, void *arg)
 
 	if (!call_supported(menu->xfer_call, REPLACES)) {
 		info ("menu: peer does not support Replaces header\n");
+		menu->xfer_call = NULL;
+		err = ENOTSUP;
 		goto out;
 	}
 
+	call_get_mdir(menu->xfer_call, &adir, &vdir);
 	err = call_hold(ua_call(ua), true);
 	if (err)
 		goto out;
 
-	err = ua_connect(ua, &menu->xfer_targ, NULL, carg->prm, VIDMODE_ON);
+	err = ua_connect_dir(ua, &menu->xfer_targ, NULL, carg->prm,
+			     VIDMODE_ON, adir, vdir);
 
 	if (err)
 		goto out;
@@ -450,6 +499,7 @@ static const struct cmd callcmdv[] = {
 
 {"aubitrate",    0,  CMD_PRM, "Set audio bitrate",    set_audio_bitrate    },
 {"audio_debug", 'A',       0, "Audio stream",         call_audio_debug     },
+{"callsource", 0, CMD_PRM, "Selected call audio source or none", call_source },
 {"callfind",     0,  CMD_PRM, "Find call <callid>",   cmd_find_call        },
 {"hold",        'x',       0, "Call hold",            cmd_call_hold        },
 {"line",        '@', CMD_PRM, "Set current call <line>", set_current_call  },

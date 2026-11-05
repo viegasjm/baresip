@@ -61,7 +61,7 @@ int uag_hold_resume(struct call *call)
 		acall = ua_find_active_call(ua);
 	}
 
-	if (acall && toresume)
+	if (acall && toresume && !call_is_local_peer(acall, toresume))
 		err =  call_hold(acall, true);
 
 	if (toresume)
@@ -94,7 +94,7 @@ int uag_hold_others(struct call *call)
 
 		for (lec = list_head(ua_calls(ua)); lec; lec = lec->next) {
 			struct call *ccall = lec->data;
-			if (ccall == call)
+			if (ccall == call || call_is_local_peer(ccall, call))
 				continue;
 
 			if (call_state(ccall) == CALL_STATE_ESTABLISHED &&
@@ -122,21 +122,12 @@ int uag_hold_others(struct call *call)
  */
 struct call *uag_call_find_pl(const struct pl *id)
 {
-	struct le *le = NULL;
-	struct ua *ua = NULL;
-	struct call *call = NULL;
-
-	if (!pl_isset(id))
+	char *selector = NULL;
+	struct call *call;
+	if (!pl_isset(id) || pl_strdup(&selector, id))
 		return NULL;
-
-	for (le = list_head(&uag.ual); le; le = le->next) {
-		ua = le->data;
-
-		call = call_find_id_pl(ua_calls(ua), id);
-		if (call)
-			break;
-	}
-
+	call = uag_call_find(selector);
+	mem_deref(selector);
 	return call;
 }
 
@@ -160,6 +151,15 @@ struct call *uag_call_find(const char *id)
 	for (le = list_head(&uag.ual); le; le = le->next) {
 		ua = le->data;
 
+		if (!str_ncmp(id, "leg:", 4)) {
+			struct le *lec;
+			for (lec = list_head(ua_calls(ua)); lec; lec = lec->next) {
+				struct call *candidate = lec->data;
+				if (!str_cmp(id, call_leg_id(candidate)))
+					return candidate;
+			}
+			continue;
+		}
 		call = call_find_id(ua_calls(ua), id);
 		if (call)
 			break;
@@ -916,6 +916,36 @@ struct ua *uag_find(const struct pl *cuser)
 }
 
 
+/* Explicit number aliases handle trunks that replace the Contact user with
+ * the called DID. They must never become a first-account catchall. */
+static bool account_matches_number(const struct account *acc,
+				   const struct pl *user)
+{
+	struct pl numbers, token, candidate = *user;
+	const char *p, *end;
+	if (msg_param_decode(&acc->laddr.params, "inbound_numbers", &numbers))
+		return false;
+	if (candidate.l && candidate.p[0] == '+') {
+		++candidate.p;
+		--candidate.l;
+	}
+	end = numbers.p + numbers.l;
+	for (p = numbers.p; p < end;) {
+		const char *start = p;
+		while (p < end && *p != ',') ++p;
+		token.p = start;
+		token.l = (size_t)(p - start);
+		if (token.l && token.p[0] == '+') {
+			++token.p;
+			--token.l;
+		}
+		if (candidate.l && !pl_cmp(&candidate, &token))
+			return true;
+		if (p < end) ++p;
+	}
+	return false;
+}
+
 /**
  * Find the correct UA from SIP message
  *
@@ -949,6 +979,24 @@ struct ua *uag_find_msg(const struct sip_msg *msg)
 
 		if (!uaf && ua_catchall(ua) && ua_isregistered(ua))
 			uaf = ua;
+	}
+
+	/* An explicitly configured DID may identify exactly one registered UA. */
+	{
+		struct ua *number_ua = NULL;
+		for (le = uag.ual.head; le; le = le->next) {
+			struct ua *ua = le->data;
+			struct account *acc = ua_account(ua);
+			if (!acc || !acc->regint || !ua_isregistered(ua) ||
+			    !uri_match_transport(&acc->luri, NULL, msg->tp) ||
+			    !account_matches_number(acc, cuser))
+				continue;
+			if (number_ua)
+				return NULL; /* ambiguous configuration */
+			number_ua = ua;
+		}
+		if (number_ua)
+			return number_ua;
 	}
 
 	/* match for peer-to-peer calls (only un-registered accounts) */

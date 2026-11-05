@@ -61,3 +61,10 @@ install_manifest.txt
 
 # Visual Studio Code
 .vscode/*
+
+# Native macOS build dependencies and outputs
+/vendor/
+/macos/.build/
+/macos/dist/
+.DS_Store
+/macos/**/__pycache__/
