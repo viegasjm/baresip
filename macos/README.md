@@ -9,6 +9,32 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.12 calling workspace
+
+Calls, Debug, Audio and Appearance now share sidebar navigation. Account
+Connect/Retry/Disconnect controls remain visible in every workspace, with edit
+and delete actions in each account's menu. The toolbar also exposes account
+settings without leaving Debug or a call.
+
+The Calls workspace centers a compact dialer with an outgoing-account picker,
+a number/SIP field and a numeric pad. Dial-pad keys enter a destination; the
+in-call Keypad sends DTMF. During a conversation, the selected call takes
+priority, with Hold, Mute, Keypad, Transfer and End call grouped together.
+Transfer fields appear on demand, audio-file and listen-only actions live under
+Audio input, and a second dialer is collapsed under Start another call.
+
+Codec and account setup no longer occupy the main calling screen. Extra call
+headers use a separate editor, while recent activity stays collapsible.
+Registration errors offer a direct Inspect REGISTER action that opens Debug
+with the selected-account registration filter already enabled. Debug panels
+adapt to narrower windows, keep message text aligned to the top, and retain
+filters and selected-message context while switching workspaces.
+
+The shared SwiftUI views were inspected with sample idle, connected, incoming
+and registration-error states at regular and compact window sizes (900 × 640
+content), including light and dark appearance. The UI preview contains no SIP
+engine resources and uses temporary account storage; it cannot place calls.
+
 ## Version 0.1.11 themes
 
 Open **Appearance** to choose Telnyx, System, Ocean or Sunset. Telnyx is the

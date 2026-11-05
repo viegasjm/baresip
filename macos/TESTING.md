@@ -1,10 +1,10 @@
-# Validation — 2026-10-28, version 0.1.11
+# Validation — 2026-11-05, version 0.1.12
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
 | Release app build, bundled libraries, local signature | Pass | Native arm64 app compiles and bundle signature verifies |
 | Theme build and custom color contrast | Pass | All theme views compile; custom palette accent/canvas and call-button label/fill pairs exceed 4.5:1 in both light and dark mode (minimum measured 5.44:1) |
-| Live theme picker visual inspection | Blocked | Isolated preview attempt failed with the native desktop pipe error; no live theme switching or relaunch-persistence inspection is claimed |
+| Live layout and appearance inspection | Pass for sample states | Shared SwiftUI views inspected in isolated 1100 × 780 and 900 × 640 content previews; Telnyx light/dark layouts, idle dialer, active/incoming calls and registration errors checked |
 | Swift protocol/credential/state/debug/device routing checks | 15 passed | Framing, redaction, credential encoding, readiness and routing validation |
 | Per-account connection controls | Pass | Both accounts use explicit authentication usernames; connecting A leaves B offline; B connects, unregisters and retries independently without restarting A's registration |
 | REGISTER account filtering and export | Pass | Responses and events stay associated with the selected account; other registrations and INVITEs are excluded; authentication is redacted |
@@ -29,7 +29,7 @@
 | File input | Pass | Live injection, incoming file input, file selected before dialing, EOF and stop-to-listen-only passed for all four codecs |
 | Multiple-call isolation | Pass | File input remains on the selected call; a second simultaneous call sends zero audio payloads, for all four codecs |
 | File conversion | Pass | WAV (44.1 kHz), AIFF and M4A convert to canonical mono 16 kHz PCM WAV; converted samples received over local PCMA RTP |
-| Native visual control inspection | Partial | Running 0.1.8 sidebar and Debug inspected through accessibility; reginfo Snapshot confirmed one loaded UA despite two saved accounts. Full visual call-flow inspection remains incomplete |
+| Native visual control inspection | Pass for layout | Numeric pad/backspace, headers sheet, account editor and navigation exercised; contextual tools, incoming actions, automatic REGISTER filtering and filter retention inspected with sample state; no real calls placed by the UI fixture |
 | Real microphone send/receive audio | Not verified | Requires an available input device and OS permission |
 | Telnyx development number-based A → B calls | Pass | Two isolated accounts in the same native app process; TLS registration/calling, rewritten SIP Call-IDs, selected-leg hold/resume and hangup; PCMA only |
 | Telnyx development file media and NAT | Pass | Preselected and live-injected six-second generated files: 300 transmit attempts each, zero send errors; B received 289 and 297 additional packets respectively; incoming payload fingerprints match the source file in memory |
@@ -51,10 +51,21 @@ explicit authUser and therefore missed this case.
 
 ## Repeatable commands
 
-The 0.1.11 changes are limited to view styling and appearance preferences. The
-full 15-check and SIP/media suite below last passed for 0.1.10; the theme release
-was checked by a full native build, palette contrast calculations and bundle
-signature verification. No engine or call-state code changed.
+The 0.1.12 view changes were compiled in the real client and a UI-only sample
+application (`macos/Tests/LayoutPreview.swift`). The preview omits the engine,
+uses temporary account storage, and does not use provider credentials. Its
+scenario menu supplies idle, active-call, incoming-call and failed-registration
+states. App settings were opened and canceled without saving. A compact preview
+also confirmed the call-control row fits and Debug's registration filter and
+reading pane remain visible. A final navigation check confirmed the selected
+Engine category survives a Calls → Debug round trip.
+
+The first full local regression run failed when the proxy tried to decode
+binary UDP packets as SIP text. The same G722/rewritten-ID/preselected-file case
+passed on an isolated rerun with no proxy errors. The full suite rerun passed, including all 17 same-app scenarios and the SIP protocol checks;
+`build/layout-first-regression.log` and `build/layout-focused-regression.log`
+retain the initial failure and focused result. No engine or packet-routing code
+was changed for this view revision.
 
 Standard checks (no microphone capture; app media fixture requires a speaker):
 
