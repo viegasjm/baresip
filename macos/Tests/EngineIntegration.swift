@@ -29,7 +29,7 @@ import AVFoundation
         let a = SIPAccount(username: "registration-a", domain: "127.0.0.1:\(port)", authUser: "registration-a", transport: "UDP")
         let b = SIPAccount(username: "registration-b", domain: "127.0.0.1:\(port)", authUser: "registration-b", transport: "UDP")
         let password = ProcessInfo.processInfo.environment["BARESIP_TEST_PASSWORD"]!
-        let engine = Engine(loopbackOnly: true, passwordOverrides: [a.id: password, b.id: password])
+        let engine = Engine(passwordOverrides: [a.id: password, b.id: password])
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent("registration-\(UUID().uuidString)/accounts.json")
         let store = Store(storageURL: storage, engine: engine)
         defer { store.disconnect() }
@@ -84,7 +84,9 @@ import AVFoundation
         try require(!keypad.isPlaying && AVCaptureDevice.authorizationStatus(for: .audio) == permissionBefore)
         print("PASS: local keypad audio renders through the selected speaker without requesting a microphone")
         let noMic = AudioDeviceCatalog(devices: [output], defaultOutputUID: output.uid)
-        let store = Store(storageURL: storage, engine: Engine(loopbackOnly: true), audioCatalog: { noMic })
+        // Use the normal client network configuration: a forced loopback
+        // interface hides local-PBX address selection failures.
+        let store = Store(storageURL: storage, engine: Engine(), audioCatalog: { noMic })
         defer {
             if store.error != nil || !store.calls.isEmpty {
                 print("App state: \(store.status), error: \(store.error ?? "none"), calls: \(store.calls)")
@@ -210,7 +212,7 @@ import AVFoundation
             if let callerID = live?[0].callerID { alice.headers.append(SIPHeader(name: "P-Asserted-Identity", value: "<sip:\(callerID)@\(alice.domain)>")) }
         }
         let passwords = live.map { [alice.id: $0[0].password, bob.id: $0[1].password] } ?? [:]
-        let engine = Engine(loopbackOnly: live == nil, passwordOverrides: passwords)
+        let engine = Engine(passwordOverrides: passwords)
         let store = Store(storageURL: path, engine: engine, audioCatalog: { noMic })
         defer {
             if live == nil && (store.error != nil || !store.calls.isEmpty) { print(store.diagnostics.export()) }

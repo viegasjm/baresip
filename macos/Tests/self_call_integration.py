@@ -28,7 +28,10 @@ class SelfCallProxy:
         headers, body = text.split('\r\n\r\n', 1)
         port = re.search(r'^m=audio (\d+)', body, re.M)
         if port and int(port[1]):
-            self.targets[side] = ('127.0.0.1', int(port[1]))
+            connection = re.search(r'^c=IN IP4 ([^\r\n]+)', body, re.M)
+            assert connection, 'IPv4 media connection missing'
+            self.targets[side] = (connection[1], int(port[1]))
+            body = re.sub(r'^c=IN IP4 [^\r\n]+', 'c=IN IP4 127.0.0.1', body, flags=re.M)
             body = re.sub(r'(^m=audio )\d+', lambda m: m[1] + str(self.media.getsockname()[1]), body, flags=re.M)
         headers = re.sub(r'^Content-Length:.*$', 'Content-Length: ' + str(len(body.encode())), headers, flags=re.M | re.I)
         return headers.rstrip('\r\n') + '\r\n\r\n' + body

@@ -9,6 +9,13 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.14 local PBX calling
+
+Calls to a local PBX at a loopback address now select a loopback media address
+with the normal app network configuration. This fixes call startup failing
+with `Invalid argument [22]` after successful local registration, without
+forcing other accounts to use the loopback interface.
+
 ## Version 0.1.13 account copying
 
 Account names and SIP addresses in the sidebar support text selection. Each

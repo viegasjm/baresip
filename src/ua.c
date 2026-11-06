@@ -888,6 +888,7 @@ int ua_call_alloc(struct call **callp, struct ua *ua,
 	struct call_prm cprm;
 	int af = AF_UNSPEC;
 	struct sa dst;
+	struct sa loopback;
 	const struct sa *laddr = NULL;
 	int err;
 
@@ -929,6 +930,14 @@ int ua_call_alloc(struct call **callp, struct ua *ua,
 	}
 	else if (sa_isset(&ua->dst, SA_ADDR)) {
 		laddr = net_laddr_for(net, &ua->dst);
+		/* Loopback is excluded from the default interface list. A local
+		 * PBX still needs a loopback media address without forcing every
+		 * account onto that interface. Resolve only loopback destinations
+		 * here and leave normal interface selection unchanged. */
+		if (!sa_isset(laddr, SA_ADDR) && sa_is_loopback(&ua->dst) &&
+		    !net_dst_source_addr_get(&ua->dst, &loopback) &&
+		    sa_is_loopback(&loopback))
+			laddr = &loopback;
 		if (!sa_isset(laddr, SA_ADDR)) {
 			warning("ua: no laddr for %j\n", &ua->dst);
 			sa_init(&ua->dst, AF_UNSPEC);

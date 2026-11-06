@@ -2706,13 +2706,22 @@ static int sipsess_desc_handler(struct mbuf **descp, const struct sa *src,
 				const struct sa *dst, void *arg)
 {
 	struct call *call = arg;
+	struct sa laddr;
 	int err;
-	(void) dst;
 
 	MAGIC_CHECK(call);
 	call->af     = sa_af(src);
-	if (!call->acc->mnat)
-		sdp_session_set_laddr(call->sdp, src);
+	if (!call->acc->mnat) {
+		/* A wildcard UDP SIP transport may use the default LAN source
+		 * even for a loopback peer. Keep SDP on the loopback route used
+		 * by the media sockets instead of advertising that LAN address. */
+		if (sa_is_loopback(dst) &&
+		    !net_dst_source_addr_get(dst, &laddr) &&
+		    sa_is_loopback(&laddr))
+			sdp_session_set_laddr(call->sdp, &laddr);
+		else
+			sdp_session_set_laddr(call->sdp, src);
+	}
 
 	if (list_isempty(&call->streaml)) {
 		err = call_streams_alloc(call);

@@ -26,4 +26,5 @@ swiftc -parse-as-library macos/Sources/BaresipMac/Models.swift macos/Sources/Bar
 python3 macos/Tests/store_integration.py "$TEST_APP/Contents/MacOS/BaresipMac"
 python3 macos/Tests/self_call_integration.py "$TEST_APP/Contents/MacOS/BaresipMac"
 python3 macos/Tests/sip_integration.py
+python3 macos/Tests/loopback_tcp_integration.py
 codesign --verify --deep --strict 'macos/dist/Baresip Mac.app'

@@ -1,4 +1,23 @@
-# Validation — 2026-11-06, version 0.1.13
+# Validation — 2026-11-06, version 0.1.14
+
+The local-PBX regression reproduced `ua: no laddr for 127.0.0.1` and
+`call failed (Invalid argument [22])` with the previous engine using normal
+interface selection. The fixed engine passed the same Store call/media test.
+Paired calls also exposed a UDP SDP mismatch: the wildcard SIP transport
+could advertise a LAN address while media used loopback. SDP now follows
+the loopback destination route for those calls. A separate TCP fixture checks registration, a numeric call, loopback SDP,
+answer and BYE without a `net_interface` override. Native registration and
+self-call fixtures now also use normal interface selection rather than
+forcing loopback. All 17 self-call scenarios passed across PCMA, PCMU, G722
+and Opus, with file playback, independent legs, hold/resume and hangup. The
+full local regression suite passed. No provider calls or provider settings
+changes were needed.
+The self-call relay now reads the endpoint's SDP connection address and
+advertises its own loopback relay address; its previous hardcoded endpoint
+address failed when normal UDP signaling advertised the LAN interface.
+Core network and TCP selftests passed in both receive modes. The optional
+core hold test could not run because this bundle excludes the `ausine` test
+module; the app-level hold/resume integration checks passed.
 
 The account-copy update passed the release build and an isolated UI check:
 Copy account name pasted `Work`, and Copy SIP address pasted
