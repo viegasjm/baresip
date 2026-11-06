@@ -143,12 +143,12 @@ struct MainView: View {
     private func accountRow(_ account: SIPAccount) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(account.displayName).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(account.displayName).font(.callout.weight(.semibold)).lineLimit(1).textSelection(.enabled)
                 Spacer()
                 Menu { accountActions(account) } label: { Image(systemName: "ellipsis") }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Actions for \(account.displayName)")
             }
-            Text(account.aor.replacingOccurrences(of: "sip:", with: "")).font(.caption2).foregroundStyle(.secondary).lineLimit(1).help(account.aor)
+            Text(account.aor.replacingOccurrences(of: "sip:", with: "")).font(.caption2).foregroundStyle(.secondary).lineLimit(1).help(account.aor).textSelection(.enabled)
             HStack(spacing: 5) {
                 Circle().fill(connectionColor(store.connection(for: account))).frame(width: 6, height: 6)
                 Text(store.connection(for: account).title).font(.caption2).foregroundStyle(.secondary)
@@ -165,8 +165,15 @@ struct MainView: View {
             .onTapGesture(count: 2) { editor = AccountEditorRequest(account: account) }
     }
     @ViewBuilder private func accountActions(_ account: SIPAccount) -> some View {
+        Button("Copy account name") { copyAccountText(account.displayName) }
+        Button("Copy SIP address") { copyAccountText(account.aor) }
+        Divider()
         Button("Edit account") { editor = AccountEditorRequest(account: account) }.disabled(store.busy)
         Button("Delete account", role: .destructive) { deletingAccount = account }.disabled(!store.calls.isEmpty || store.busy)
+    }
+    private func copyAccountText(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var callsWorkspace: some View {

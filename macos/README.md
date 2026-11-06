@@ -9,6 +9,12 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.13 account copying
+
+Account names and SIP addresses in the sidebar support text selection. Each
+account's ellipsis and context menus also offer Copy account name and Copy SIP
+address, including the full value when the sidebar truncates it.
+
 ## Version 0.1.12 calling workspace
 
 Calls, Debug, Audio and Appearance now share sidebar navigation. Account

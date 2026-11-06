@@ -1,4 +1,11 @@
-# Validation — 2026-11-05, version 0.1.12
+# Validation — 2026-11-06, version 0.1.13
+
+The account-copy update passed the release build and an isolated UI check:
+Copy account name pasted `Work`, and Copy SIP address pasted
+`sip:alex@sip.example.test` into the preview's destination field. No call was
+placed and no real accounts were accessed. The change only affects account
+text selection and menu actions; the SIP regression results below are from
+version 0.1.12.
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
