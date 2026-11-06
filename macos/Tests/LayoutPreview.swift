@@ -32,6 +32,14 @@ import AppKit
         if state == "failed" {
             store.registrations[account.aor] = "Registration failed"
             store.registrationErrors[account.aor] = "403 Forbidden · sample registration failure"
+        } else if ["paired-incoming", "paired-active", "transfer-failed"].contains(state), let other = store.accounts.last {
+            var outgoing = SIPCall(id: "preview-outgoing", account: account.aor, peer: other.aor, state: state == "paired-incoming" ? "Ringing" : "Connected", incoming: false, sipCallID: "outgoing-call-id")
+            var incoming = SIPCall(id: "preview-incoming", account: other.aor, peer: account.aor, state: state == "paired-incoming" ? "Incoming" : "Connected", incoming: true, sipCallID: "incoming-call-id")
+            outgoing.localPeerID = incoming.id; incoming.localPeerID = outgoing.id
+            outgoing.audioInput = "Listen only"; incoming.audioInput = "Listen only"
+            if state == "transfer-failed" { incoming.transferDestination = "sip:351000000000@example.test"; incoming.transferFailure = "404 Not Found" }
+            store.calls = [outgoing, incoming]; store.selectCall(incoming.id)
+            store.activeAccounts.insert(other.id); store.registrations[other.aor] = "Registered"
         } else if state != "idle" {
             var call = SIPCall(id: "preview-leg", account: account.aor, peer: "sip:1002@example.test", state: state == "incoming" ? "Incoming" : "Connected", incoming: state == "incoming", sipCallID: "preview-call-id")
             call.audioInput = CallAudioInput.listen.title
@@ -49,6 +57,9 @@ import AppKit
                             Button("Active call") { scenario("active") }
                             Button("Incoming call") { scenario("incoming") }
                             Button("Registration failed") { scenario("failed") }
+                            Button("Paired incoming") { scenario("paired-incoming") }
+                            Button("Paired connected") { scenario("paired-active") }
+                            Button("Transfer failed") { scenario("transfer-failed") }
                         }
                     }
                 }

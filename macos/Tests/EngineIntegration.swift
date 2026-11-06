@@ -166,6 +166,15 @@ import AVFoundation
                     store.calls.first { $0.id == firstID }?.held == false && store.calls.first { $0.id == secondID }?.held == true
                 }
                 store.selectedCall = secondID
+                store.transferTarget = "missing-transfer"
+                store.transfer(attended: false, callID: firstID)
+                try await idle(store)
+                try await waitFor("transfer failure attributed to original call") { store.calls.first { $0.id == firstID }?.transferFailure == "404 Not Found" }
+                try require(store.calls.first { $0.id == secondID }?.transferFailure == nil)
+                try require(store.error?.contains("sip:missing-transfer@") == true && store.error?.contains("leading +") == true)
+                try require(store.calls.count == 2, "Failed transfer closed a call")
+                store.error = nil
+                store.selectedCall = secondID
                 store.control("hangup")
                 try await idle(store)
                 try await waitFor("second call closed") { store.calls.count == 1 }
@@ -254,6 +263,7 @@ import AVFoundation
         try await waitFor("two distinct local call legs") { store.calls.count == 2 && store.calls.contains { $0.incoming && $0.state == "Incoming" } }
         let outgoing = store.calls.first { !$0.incoming }!
         let incoming = store.calls.first { $0.incoming }!
+        try require(store.selectedAccount == bob.id, "Incoming selection did not identify its owning account")
         try require(outgoing.id != incoming.id, "Call legs were merged")
         let rewritten = ProcessInfo.processInfo.environment["BARESIP_SELF_CALL_REWRITE"] == "1"
         if live == nil { try require((outgoing.sipID != incoming.sipID) == rewritten, "Proxy Call-ID behavior differs") }
@@ -301,16 +311,21 @@ import AVFoundation
         try require(store.calls.count == 2 && store.calls.allSatisfy { $0.connected && !$0.held }, "File playback closed or held a leg")
         store.selectedCall = incoming.id; store.captureSnapshot(); try await idle(store)
         try require(store.diagnostics.entries.contains { $0.summary == "Negotiated audio and RTP" && $0.callID == incoming.sipID && $0.detail.contains(codecName) })
-        store.selectedCall = outgoing.id; store.control("hold"); try await idle(store)
+        store.selectCall(incoming.id)
+        try require(store.selectedAccount == bob.id && store.relatedCall(to: incoming)?.id == outgoing.id)
+        store.control("hold", callID: outgoing.id); try await idle(store)
         try await Task.sleep(nanoseconds: 200_000_000)
         try require(store.calls.first { $0.id == outgoing.id }?.held == true)
         try require(store.calls.first { $0.id == incoming.id }?.held == false, "Holding one leg changed the other's local hold state")
-        store.control("resume"); try await idle(store)
+        store.control("resume", callID: outgoing.id); try await idle(store)
         try await Task.sleep(nanoseconds: 200_000_000)
         try require(store.calls.allSatisfy { !$0.held }, "Resuming one self-call leg held its peer")
-        store.selectedCall = localNumber == nil ? incoming.id : outgoing.id; store.control("hangup"); try await idle(store)
+        let hangupID = localNumber == nil ? incoming.id : outgoing.id
+        store.selectCall(hangupID == incoming.id ? outgoing.id : incoming.id)
+        store.control("hangup", callID: hangupID); try await idle(store)
         try await waitFor("both self-call legs ended normally") { store.calls.isEmpty }
         try require(store.connected && store.error == nil, store.error ?? "App disconnected")
+        try require(store.activity.contains { $0.contains("Hangup requested from") && $0.contains(hangupID) }, "Hangup attribution missing")
         print("PASS: native app \(codecName) self-call; two registered accounts and distinct local legs; \(live == nil ? (rewritten ? "rewritten" : "shared") : "provider") SIP Call-ID; no mutual auto-hold; \(preselected ? "preselected" : "live") file received by second account; selected-leg hold/resume and hangup")
     }
     static func makeFile(_ url: URL, silence: Bool = false, frames: AVAudioFrameCount = 22050) throws {

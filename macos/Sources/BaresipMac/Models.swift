@@ -67,6 +67,8 @@ struct SIPCall: Identifiable, Equatable {
     var incoming: Bool
     var sipCallID = ""
     var localPeerID: String?
+    var transferDestination: String?
+    var transferFailure: String?
     var sipID: String { sipCallID.isEmpty ? id : sipCallID }
     static func controlID(_ event: [String: Any]) -> String? { event["leg_id"] as? String ?? event["id"] as? String }
     static func uriIdentity(_ value: String) -> String {
@@ -93,7 +95,13 @@ struct SIPCall: Identifiable, Equatable {
     var muted = false
     var started = Date()
     var connected: Bool { state == "Connected" }
-    var statusTitle: String { held ? "On hold" : (remoteHeld ? "Held by remote party" : state) }
+    var statusTitle: String { held ? "On hold" : (remoteHeld ? "Held by remote party" : (state == "Incoming" ? "Awaiting answer" : state)) }
+    static func transferExplanation(_ reason: String) -> String {
+        if reason.hasPrefix("404") {
+            return "The server could not route the transfer destination. Check the number or extension and the server's transfer routes. International numbers may require a leading +."
+        }
+        return "Review the REFER and NOTIFY messages in Debug for the server's response."
+    }
     mutating func updateHoldState(_ event: [String: Any]) {
         if let local = event["local_hold"] as? Bool { held = local }
         if event["type"] as? String == "CALL_HOLD" { remoteHeld = true }

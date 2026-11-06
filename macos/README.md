@@ -9,6 +9,23 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.15 account call ends and transfer diagnostics
+
+Calls shows an entry for each local call end, including its account, incoming
+or outgoing direction, and status. Related ends show Linked to the other
+account. Selecting an entry or an account with a call selects that side's
+controls; the selected account follows incoming calls too. End call, hold,
+mute, DTMF, transfer and audio controls target the displayed call's local ID.
+Ending one side normally causes the server to end its related side as well.
+Unregister is a separate account registration control and is disabled during a
+call on that account.
+
+Transfer shows the originating account and the exact destination URI before
+sending. Failures retain their account and destination, include a routing
+explanation, and link to that call's SIP diagnostics. Use a leading + for
+international numbers where the PBX requires it; server routing permissions
+still apply. The app does not rewrite numeric extensions or enable PBX routes.
+
 ## Version 0.1.14 local PBX calling
 
 Calls to a local PBX at a loopback address now select a loopback media address

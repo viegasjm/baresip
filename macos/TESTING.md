@@ -1,4 +1,20 @@
-# Validation — 2026-11-06, version 0.1.14
+# Validation — 2026-11-06, version 0.1.15
+
+Account call ends and transfer diagnostics: the Store test receives a real
+REFER acceptance followed by a NOTIFY with `404 Not Found`. The transfer
+explicitly targets an older call while another call is selected; the remote
+peer verifies the REFER dialog, the failure includes its destination, and both
+calls remain present. Self-call checks exercise explicit hold/resume and
+hangup IDs while the other side is selected, with account-aware activity.
+
+The UI-only 900 × 640 preview was inspected before/after answer: both call
+ends and per-account statuses remain visible, linked labels identify their
+relationship, and selecting an account or call changes the owning-account
+control header and accessible End call label. The transfer panel displays the
+account and full URI; the retained failure links to SIP-filtered Debug.
+No live PSTN transfer or PBX route changes were performed for this update.
+
+Earlier local-PBX validation (0.1.14):
 
 The local-PBX regression reproduced `ua: no laddr for 127.0.0.1` and
 `call failed (Invalid argument [22])` with the previous engine using normal

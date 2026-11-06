@@ -79,7 +79,7 @@ class Peer:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(('127.0.0.1', 0)); self.sock.settimeout(.2)
         self.port = self.sock.getsockname()[1]
-        self.messages = []; self.registrations = {}; self.running = True; self.supports_replaces = True; self.auth_failures = []
+        self.messages = []; self.registrations = {}; self.running = True; self.supports_replaces = True; self.auth_failures = []; self.refer_failure = None
         self.thread = threading.Thread(target=self.serve, daemon=True); self.thread.start()
         if self.rtp:
             self.media_thread = threading.Thread(target=self.media, daemon=True)
@@ -174,6 +174,11 @@ class Peer:
             if body: response += 'Content-Type: application/sdp\r\n'
             response += f'Content-Length: {len(body.encode())}\r\n\r\n{body}'
             self.sock.sendto(response.encode(), addr)
+            if method == 'REFER' and self.refer_failure:
+                target = re.search(r'<([^>]+)>', h['contact'])[1]
+                fragment = 'SIP/2.0 ' + self.refer_failure + '\r\n'
+                notify = f"NOTIFY {target} SIP/2.0\r\nVia: SIP/2.0/UDP 127.0.0.1:{self.port};branch=z9hG4bK{uuid.uuid4().hex}\r\nFrom: {to}\r\nTo: {h['from']}\r\nCall-ID: {h['call-id']}\r\nCSeq: 1 NOTIFY\r\nMax-Forwards: 70\r\nEvent: refer;id={h['cseq'].split()[0]}\r\nSubscription-State: terminated;reason=noresource\r\nContent-Type: message/sipfrag\r\nContent-Length: {len(fragment.encode())}\r\n\r\n{fragment}"
+                self.sock.sendto(notify.encode(), addr)
     def requests(self, method): return [x for x in self.messages if x.startswith(method + ' ')]
     def close(self):
         self.running = False

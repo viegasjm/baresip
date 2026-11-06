@@ -57,6 +57,13 @@ import AVFoundation
     }
     var accountConnection: AccountConnection { connection(for: account) }
     var call: SIPCall? { calls.first { $0.id == selectedCall } }
+    func accountName(for call: SIPCall) -> String { accounts.first { $0.aor == call.account }?.displayName ?? call.account }
+    func relatedCall(to call: SIPCall) -> SIPCall? { calls.first { $0.id == call.localPeerID } }
+    func selectCall(_ id: String) {
+        guard let call = calls.first(where: { $0.id == id }) else { return }
+        selectedCall = id
+        if let account = accounts.first(where: { $0.aor == call.account }) { selectedAccount = account.id }
+    }
     init(storageURL: URL? = nil, engine testEngine: Engine? = nil, audioCatalog: @escaping () -> AudioDeviceCatalog = AudioDiagnostics.catalog) {
         self.engine = testEngine ?? Engine()
         self.storageOverride = storageURL
@@ -131,10 +138,10 @@ import AVFoundation
             }
         }
     }
-    func sendDTMF(_ digit: String) {
-        guard let call, call.connected, !call.held,
+    func sendDTMF(_ digit: String, callID: String? = nil) {
+        guard let call = calls.first(where: { $0.id == (callID ?? selectedCall) }), call.connected, !call.held,
               digit.count == 1, "0123456789*#".contains(digit) else { return }
-        control("sndcode", params: digit) { [weak self] in self?.playKeypadSound(digit) }
+        control("sndcode", params: digit, callID: call.id) { [weak self] in self?.playKeypadSound(digit) }
     }
     func playKeypadSound(_ digit: String = "5") {
         guard keypadSounds else { return }
@@ -224,9 +231,9 @@ import AVFoundation
             }
         }
     }
-    func stopSendingAudio() {
-        let id = call?.id
-        control("callsource", params: "none") { [weak self] in
+    func stopSendingAudio(callID: String? = nil) {
+        let id = callID ?? selectedCall
+        control("callsource", params: "none", callID: id) { [weak self] in
             guard let self, let id, let index = self.calls.firstIndex(where: { $0.id == id }) else { return }
             self.calls[index].audioInput = CallAudioInput.listen.title
         }
@@ -270,8 +277,8 @@ import AVFoundation
             self.note("Calling \(uri) using \(account.displayName)")
         }
     }
-    func control(_ command: String, params: String = "", onSuccess: (() -> Void)? = nil) {
-        guard let call, connected else { return }
+    func control(_ command: String, params: String = "", callID: String? = nil, onSuccess: (() -> Void)? = nil) {
+        guard let call = calls.first(where: { $0.id == (callID ?? selectedCall) }), connected else { return }
         run {
             let input = command == "accept" ? try await self.prepareCallInput(mode: call.localPeerID == nil ? nil : .listen) : nil
             _ = try await self.engine.command("uafind", call.account)
@@ -289,18 +296,23 @@ import AVFoundation
                 self.calls[index].held = command == "hold"
             }
             if command == "mute", let index = self.calls.firstIndex(where: { $0.id == call.id }) { self.calls[index].muted.toggle() }
-            self.note("\(command.capitalized) requested")
+            self.note("\(command.capitalized) requested from \(self.accountName(for: call)) · \(call.id) · Call-ID: \(call.sipID)")
             onSuccess?()
         }
     }
-    func transfer(attended: Bool) {
-        guard let call, let account = accounts.first(where: { $0.aor == call.account }) else { return }
+    func transfer(attended: Bool, callID: String? = nil) {
+        guard let call = calls.first(where: { $0.id == (callID ?? selectedCall) }), let account = accounts.first(where: { $0.aor == call.account }) else { return }
         do {
             let uri = try Self.dialURI(transferTarget, account: account)
-            if !attended { control("transfer", params: uri); return }
             run {
                 _ = try await self.engine.command("uafind", call.account)
                 _ = try await self.engine.command("callfind", call.id)
+                if let index = self.calls.firstIndex(where: { $0.id == call.id }) {
+                    self.calls[index].transferDestination = uri
+                    self.calls[index].transferFailure = nil
+                }
+                self.note("\(attended ? "Consultation" : "Blind transfer") from \(account.displayName) to \(uri) · \(call.id) · Call-ID: \(call.sipID)")
+                if !attended { _ = try await self.engine.command("transfer", uri); return }
                 let existing = Set(self.calls.map(\.id))
                 _ = try await self.engine.command("atransferstart", uri)
                 self.transferOriginal = call.id
@@ -380,14 +392,16 @@ import AVFoundation
             return
         }
         if type == "CALL_CLOSED" {
+            let endedCall = calls.first { $0.id == id }
             calls.removeAll { $0.id == id }
+            for index in calls.indices where calls[index].localPeerID == id { calls[index].localPeerID = nil }
             if selectedCall == id { selectedCall = calls.first?.id }
             if calls.isEmpty { attendedTransfer = false }
             if id == transferConsult || id == transferOriginal {
                 attendedTransfer = false; transferOriginal = nil; transferConsult = nil
             }
             let reason = object["param"] as? String ?? ""
-            note("Call ended: \(reason) · Call-ID: \(rawID)")
+            note("Call ended on \(endedCall.map { accountName(for: $0) } ?? aor): \(reason) · \(id) · Call-ID: \(rawID)")
             if DebugJournal.deviceExplanation(reason) != nil {
                 refreshAudioDevices()
                 error = "Call audio could not start. Check your microphone and speaker in the Audio tab, then try again. Your SIP accounts remain connected. Details are available in Debug."
@@ -406,7 +420,7 @@ import AVFoundation
             else {
                 calls.append(SIPCall(id: id, account: aor, peer: object["peeruri"] as? String ?? "Unknown caller", state: state, incoming: object["direction"] as? String == "incoming", sipCallID: rawID))
                 if type != "CALL_INCOMING", let index = calls.firstIndex(where: { $0.id == id }) { calls[index].audioInput = nextCallInput }
-                selectedCall = id
+                selectCall(id)
             }
             let numbers = accounts.first { $0.aor == aor }?.assignedNumbers ?? []
             if type == "CALL_INCOMING", let incoming = calls.first(where: { $0.id == id }), let partner = incoming.localPartner(in: calls, phoneNumbers: numbers) {
@@ -419,6 +433,13 @@ import AVFoundation
             calls[index].updateHoldState(object)
             if let peer = object["local_peer_leg"] as? String, !peer.isEmpty { calls[index].localPeerID = peer }
         }
-        if type == "TRANSFER_FAILED" { error = "Call transfer failed: \(object["param"] as? String ?? "Unknown reason")"; attendedTransfer = false }
+        if type == "TRANSFER_FAILED", let index = calls.firstIndex(where: { $0.id == id }) {
+            let reason = object["param"] as? String ?? "Unknown reason"
+            calls[index].transferFailure = reason
+            let call = calls[index]
+            error = "Call transfer failed on \(accountName(for: call)): \(reason)\nDestination: \(call.transferDestination ?? "See REFER in Debug")\n\n\(SIPCall.transferExplanation(reason))"
+            note("Transfer failed on \(accountName(for: call)): \(reason) · \(id) · Call-ID: \(rawID)")
+            attendedTransfer = false
+        }
     }
 }

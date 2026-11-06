@@ -17,8 +17,16 @@ struct MainView: View {
     private var palette: ThemePalette { theme.palette(for: scheme) }
     private var callSelection: Binding<String?> {
         Binding(get: { store.selectedCall }, set: { id in
-            store.selectedCall = id
+            if let id { store.selectCall(id) }
             if id != nil { workspace = .calls }
+        })
+    }
+    private var accountSelection: Binding<UUID?> {
+        Binding(get: { store.selectedAccount }, set: { id in
+            store.selectedAccount = id
+            if let call = store.calls.first(where: { call in store.accounts.first { $0.id == id }?.aor == call.account }) {
+                store.selectCall(call.id); workspace = .calls
+            }
         })
     }
     @State private var workspace: WorkspacePage = .calls
@@ -112,7 +120,7 @@ struct MainView: View {
                 Button { editor = AccountEditorRequest(account: SIPAccount()) } label: { Image(systemName: "plus") }
                     .buttonStyle(.borderless).help("Add SIP account").disabled(!store.calls.isEmpty || store.busy)
             }.padding(.horizontal, 16).padding(.vertical, 12)
-            List(selection: $store.selectedAccount) {
+            List(selection: accountSelection) {
                 ForEach(store.accounts) { account in accountRow(account) }
             }.listStyle(.sidebar).scrollContentBackground(.hidden)
             if !store.calls.isEmpty {
@@ -122,12 +130,13 @@ struct MainView: View {
                 List(selection: callSelection) {
                     ForEach(store.calls) { call in
                         VStack(alignment: .leading, spacing: 4) {
-                            Label(call.peer.replacingOccurrences(of: "sip:", with: ""), systemImage: call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right").font(.callout).lineLimit(1)
-                            Text("\(call.statusTitle) · \(store.accounts.first { $0.aor == call.account }?.displayName ?? call.account)").font(.caption2).foregroundStyle(.secondary)
+                            Text(store.accountName(for: call)).font(.callout.weight(.semibold)).lineLimit(1)
+                            Text("\(call.incoming ? "Incoming" : "Outgoing") · \(call.statusTitle)").font(.caption2).foregroundStyle(.secondary)
+                            if let related = store.relatedCall(to: call) { Label("Linked to \(store.accountName(for: related))", systemImage: "link").font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                         }.padding(.vertical, 5).tag(call.id).contentShape(Rectangle())
-                            .onTapGesture { store.selectedCall = call.id; workspace = .calls }
+                            .onTapGesture { store.selectCall(call.id); workspace = .calls }
                     }
-                }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(height: CGFloat(min(112, store.calls.count * 55 + 8)))
+                }.listStyle(.sidebar).scrollContentBackground(.hidden).frame(height: CGFloat(min(210, store.calls.count * 78 + 8)))
             }
             Divider()
             Button { workspace = .audio } label: {
@@ -153,11 +162,15 @@ struct MainView: View {
                 Circle().fill(connectionColor(store.connection(for: account))).frame(width: 6, height: 6)
                 Text(store.connection(for: account).title).font(.caption2).foregroundStyle(.secondary)
                 Spacer(minLength: 3)
-                Button(store.connection(for: account).canDial ? "Disconnect" : (store.connection(for: account).phase == .failed ? "Retry" : "Connect")) {
+                Button(store.connection(for: account).canDial ? (account.register ? "Unregister" : "Disconnect") : (store.connection(for: account).phase == .failed ? "Retry" : "Connect")) {
                     store.registrationAction(account, disconnect: store.connection(for: account).canDial)
                 }.buttonStyle(.borderless).font(.caption2)
                     .disabled(store.busy || store.calls.contains { $0.account == account.aor })
-                    .accessibilityLabel("\(store.connection(for: account).canDial ? "Disconnect" : "Connect or register") \(account.displayName)")
+                    .help("Account registration control for \(account.displayName). End an active call using its End call button.")
+                    .accessibilityLabel("\(store.connection(for: account).canDial ? (account.register ? "Unregister" : "Disconnect") : "Connect or register") \(account.displayName)")
+            }
+            ForEach(store.calls.filter { $0.account == account.aor }) { call in
+                Label("\(call.incoming ? "Incoming" : "Outgoing") · \(call.statusTitle)", systemImage: call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right").font(.caption2).foregroundStyle(palette.accent)
             }
         }.padding(.vertical, 7).tag(account.id)
             .listRowBackground(store.selectedAccount == account.id ? palette.selection : Color.clear)
@@ -181,7 +194,7 @@ struct MainView: View {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Calls").font(.largeTitle.weight(.semibold))
-                    Text(store.calls.isEmpty ? "Call a number, extension, or SIP address." : "\(store.calls.count) active conversation\(store.calls.count == 1 ? "" : "s"). Select a call in the sidebar to manage it.")
+                    Text(store.calls.isEmpty ? "Call a number, extension, or SIP address." : "\(store.calls.count) call end\(store.calls.count == 1 ? "" : "s"). Select an account's side to control it.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 if store.accounts.isEmpty {
@@ -194,6 +207,7 @@ struct MainView: View {
                 } else {
                     if store.accountConnection.phase == .failed, let account = store.account { registrationFailure(account) }
                     if let call = store.call {
+                        if store.calls.count > 1 { callOverview }
                         callCard(call)
                         DisclosureGroup("Start another call", isExpanded: $showAdditionalCall) { dialer.padding(.top, 12) }
                     } else { dialer }
@@ -280,14 +294,42 @@ struct MainView: View {
         }
     }
 
+    private var callOverview: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Call ends · \(store.calls.count)").font(.headline)
+            ForEach(store.calls) { call in
+                Button { store.selectCall(call.id) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right").foregroundStyle(palette.accent)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(store.accountName(for: call)).font(.callout.weight(.semibold))
+                            Text("\(call.incoming ? "Incoming from" : "Outgoing to") \(call.peer.replacingOccurrences(of: "sip:", with: ""))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            if let related = store.relatedCall(to: call) {
+                                Label("Linked to \(store.accountName(for: related))", systemImage: "link").font(.caption).foregroundStyle(palette.accent)
+                            }
+                        }
+                        Spacer(minLength: 4)
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text(call.statusTitle).font(.callout.weight(.medium))
+                            if store.selectedCall == call.id { Text("Controlling this side").font(.caption2).foregroundStyle(palette.accent) }
+                        }
+                    }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(store.selectedCall == call.id ? palette.selection : palette.surface, in: RoundedRectangle(cornerRadius: 10))
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("\(store.accountName(for: call)), \(call.incoming ? "incoming" : "outgoing"), \(call.statusTitle)").accessibilityValue(store.selectedCall == call.id ? "Controlling this side" : "Select to control this side")
+            }
+        }
+    }
+
     private func callCard(_ call: SIPCall) -> some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 20) {
+                Text("Controls for \(store.accountName(for: call))").font(.headline)
                 HStack(spacing: 14) {
                     Image(systemName: call.held ? "pause.circle.fill" : "phone.circle.fill").font(.system(size: 48)).foregroundStyle(palette.accent)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(call.peer.replacingOccurrences(of: "sip:", with: "")).font(.title2.weight(.semibold)).textSelection(.enabled)
-                        Text(store.accounts.first { $0.aor == call.account }?.displayName ?? call.account).font(.callout).foregroundStyle(.secondary)
+                        Text("\(call.incoming ? "Incoming to" : "Outgoing from") \(store.accountName(for: call))").font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 5) {
@@ -295,19 +337,23 @@ struct MainView: View {
                         if call.connected { Text(call.started, style: .timer).font(.title3.monospacedDigit()) }
                     }
                 }
+                if let related = store.relatedCall(to: call) {
+                    Label("Linked call · \(store.accountName(for: related)) · \(related.statusTitle)", systemImage: "link").font(.callout).foregroundStyle(palette.accent)
+                    Text("End call sends hangup from \(store.accountName(for: call)). The server normally ends the linked side too.").font(.caption).foregroundStyle(.secondary)
+                }
                 HStack(spacing: 10) {
                     if call.state == "Incoming" {
-                        Button { store.control("accept") } label: { Label("Answer", systemImage: "phone.fill") }.tint(.green).buttonStyle(.borderedProminent)
+                        Button { store.control("accept", callID: call.id) } label: { Label("Answer", systemImage: "phone.fill") }.tint(.green).buttonStyle(.borderedProminent)
                     }
                     if call.connected {
-                        Button { store.control(call.held ? "resume" : "hold") } label: { Label(call.held ? "Resume" : "Hold", systemImage: call.held ? "play.fill" : "pause.fill") }
-                        Button { store.control("mute", params: call.muted ? "off" : "on") } label: { Label(call.muted ? "Unmute" : "Mute", systemImage: call.muted ? "mic.slash.fill" : "mic.fill") }
+                        Button { store.control(call.held ? "resume" : "hold", callID: call.id) } label: { Label(call.held ? "Resume" : "Hold", systemImage: call.held ? "play.fill" : "pause.fill") }
+                        Button { store.control("mute", params: call.muted ? "off" : "on", callID: call.id) } label: { Label(call.muted ? "Unmute" : "Mute", systemImage: call.muted ? "mic.slash.fill" : "mic.fill") }
                         Button { showKeypad.toggle() } label: { Label("Keypad", systemImage: "circle.grid.3x3.fill") }
                         Button { showTransfer.toggle() } label: { Label("Transfer", systemImage: "arrowshape.turn.up.right") }
                     }
                     Spacer(minLength: 0)
-                    Button { store.control("hangup") } label: { Label(call.state == "Incoming" ? "Decline" : "End call", systemImage: "phone.down.fill") }
-                        .buttonStyle(.borderedProminent).tint(.red).help("End selected call")
+                    Button { store.control("hangup", callID: call.id) } label: { Label(call.state == "Incoming" ? "Decline" : "End call", systemImage: "phone.down.fill") }
+                        .buttonStyle(.borderedProminent).tint(.red).help("End call on \(store.accountName(for: call))").accessibilityLabel("\(call.state == "Incoming" ? "Decline" : "End call") on \(store.accountName(for: call))")
                 }.controlSize(.large).disabled(store.busy)
                 if call.connected {
                     if showKeypad {
@@ -317,7 +363,7 @@ struct MainView: View {
                             Spacer()
                             Toggle("Keypad sounds", isOn: $store.keypadSounds).toggleStyle(.checkbox).font(.caption)
                         }
-                        PhoneKeypad(actionLabel: "Send DTMF") { store.sendDTMF($0) }.disabled(store.busy || call.held)
+                        PhoneKeypad(actionLabel: "Send DTMF") { store.sendDTMF($0, callID: call.id) }.disabled(store.busy || call.held)
                         if let issue = store.keypadSoundIssue { Text(issue).font(.caption).foregroundStyle(.orange) }
                     }
                     if showTransfer || store.attendedTransfer {
@@ -333,13 +379,26 @@ struct MainView: View {
                             }.disabled(store.busy)
                         } else {
                             VStack(alignment: .leading, spacing: 12) {
-                                TextField("Transfer to extension or SIP address", text: $store.transferTarget).textFieldStyle(.roundedBorder)
+                                Text("Transfer from \(store.accountName(for: call))").font(.callout.weight(.medium))
+                                TextField("+country code and number, extension, or SIP address", text: $store.transferTarget).textFieldStyle(.roundedBorder)
+                                if let account = store.accounts.first(where: { $0.aor == call.account }), let uri = try? Store.dialURI(store.transferTarget, account: account) {
+                                    Text("Destination: \(uri)").font(.caption.monospaced()).textSelection(.enabled)
+                                }
+                                Text("For international numbers, include + and the country code. The server must allow the transfer destination.").font(.caption).foregroundStyle(.secondary)
                                 HStack {
-                                    Button("Blind transfer") { store.transfer(attended: false) }.disabled(store.transferTarget.isEmpty)
-                                    Button("Consult first") { store.transfer(attended: true) }.disabled(store.transferTarget.isEmpty)
+                                    Button("Blind transfer") { store.transfer(attended: false, callID: call.id) }.disabled(store.transferTarget.isEmpty)
+                                    Button("Consult first") { store.transfer(attended: true, callID: call.id) }.disabled(store.transferTarget.isEmpty)
                                 }
                             }.disabled(store.busy)
                         }
+                    }
+                    if let failure = call.transferFailure {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Transfer failed: \(failure)").font(.callout.weight(.semibold))
+                            Text(call.transferDestination ?? "").font(.caption.monospaced()).textSelection(.enabled)
+                            Text(SIPCall.transferExplanation(failure)).font(.caption)
+                            Button("Inspect transfer in Debug") { debugState.callID = call.sipID; debugState.registrationOnly = false; debugState.category = "SIP"; debugState.selectedEntry = nil; workspace = .debug }
+                        }.foregroundStyle(.orange)
                     }
                     Divider()
                     HStack {
@@ -347,7 +406,7 @@ struct MainView: View {
                         Spacer()
                         Menu {
                             Button("Play audio file…") { audioFileCallID = call.id; showAudioFilePicker = true }
-                            Button("Listen only") { store.stopSendingAudio() }
+                            Button("Listen only") { store.stopSendingAudio(callID: call.id) }
                         } label: { Label("Audio input", systemImage: "slider.horizontal.3") }.fixedSize().disabled(store.busy || call.held)
                     }
                 }
