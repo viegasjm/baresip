@@ -1,4 +1,11 @@
-# Validation — 2026-11-06, version 0.1.15
+# Validation — 2026-11-06, version 0.1.16
+
+Call direction indicators are a view-only update. The release build and
+compact UI preview verify phone-arrow indicators beside both incoming and
+outgoing call statuses, plus accessible direction/status labels. No SIP or
+PBX behavior changed; the protocol and audio results below are from 0.1.15.
+
+Earlier account call-end validation (0.1.15):
 
 Account call ends and transfer diagnostics: the Store test receives a real
 REFER acceptance followed by a NOTIFY with `404 Not Found`. The transfer

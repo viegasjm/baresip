@@ -131,7 +131,7 @@ struct MainView: View {
                     ForEach(store.calls) { call in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(store.accountName(for: call)).font(.callout.weight(.semibold)).lineLimit(1)
-                            Text("\(call.incoming ? "Incoming" : "Outgoing") · \(call.statusTitle)").font(.caption2).foregroundStyle(.secondary)
+                            Label("\(call.incoming ? "Incoming" : "Outgoing") · \(call.statusTitle)", systemImage: directionSymbol(call)).font(.caption2).foregroundStyle(.secondary)
                             if let related = store.relatedCall(to: call) { Label("Linked to \(store.accountName(for: related))", systemImage: "link").font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                         }.padding(.vertical, 5).tag(call.id).contentShape(Rectangle())
                             .onTapGesture { store.selectCall(call.id); workspace = .calls }
@@ -300,7 +300,6 @@ struct MainView: View {
             ForEach(store.calls) { call in
                 Button { store.selectCall(call.id) } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right").foregroundStyle(palette.accent)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(store.accountName(for: call)).font(.callout.weight(.semibold))
                             Text("\(call.incoming ? "Incoming from" : "Outgoing to") \(call.peer.replacingOccurrences(of: "sip:", with: ""))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -310,7 +309,7 @@ struct MainView: View {
                         }
                         Spacer(minLength: 4)
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(call.statusTitle).font(.callout.weight(.medium))
+                            callStatus(call).font(.callout.weight(.medium))
                             if store.selectedCall == call.id { Text("Controlling this side").font(.caption2).foregroundStyle(palette.accent) }
                         }
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -333,7 +332,7 @@ struct MainView: View {
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 5) {
-                        Text(call.statusTitle).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                        callStatus(call).font(.caption.weight(.medium)).foregroundStyle(.secondary)
                         if call.connected { Text(call.started, style: .timer).font(.title3.monospacedDigit()) }
                     }
                 }
@@ -412,5 +411,13 @@ struct MainView: View {
                 }
             }.padding(20)
         } label: { Label(call.state == "Incoming" ? "Incoming call" : "Current call", systemImage: call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right") }
+    }
+    private func directionSymbol(_ call: SIPCall) -> String {
+        call.incoming ? "phone.arrow.down.left" : "phone.arrow.up.right"
+    }
+    private func callStatus(_ call: SIPCall) -> some View {
+        Label(call.statusTitle, systemImage: directionSymbol(call))
+            .help(call.incoming ? "Inbound call" : "Outbound call")
+            .accessibilityLabel("\(call.incoming ? "Inbound" : "Outbound") call, \(call.statusTitle)")
     }
 }

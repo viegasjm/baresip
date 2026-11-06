@@ -9,6 +9,13 @@ A native SwiftUI macOS client backed by Baresip 4.12.0. This first version suppo
 - Default account headers and additional call headers for outgoing INVITEs.
 - Private local password files (no Keychain prompts); account preferences stored separately.
 
+## Version 0.1.16 call direction indicators
+
+Call statuses show a phone with an inward arrow for inbound calls and an
+outward arrow for outbound calls. The indicators appear alongside the status
+in call-end cards, selected-call controls and the active-call sidebar, with
+direction tooltips and accessible labels.
+
 ## Version 0.1.15 account call ends and transfer diagnostics
 
 Calls shows an entry for each local call end, including its account, incoming
